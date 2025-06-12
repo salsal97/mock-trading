@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './Auth.css';
 
@@ -15,6 +16,7 @@ const Auth = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
+    const navigate = useNavigate();
 
     const handleChange = (e) => {
         setFormData({
@@ -37,8 +39,14 @@ const Auth = () => {
                 // Store the token in localStorage
                 localStorage.setItem('token', response.data.token.access);
                 setSuccess('Login successful! Redirecting...');
-                // Redirect to dashboard or home page
-                window.location.href = '/dashboard';
+                
+                // Check if user is admin and redirect accordingly
+                if (response.data.is_admin) {
+                    navigate('/admin');
+                } else {
+                    // For non-admin users, we'll handle this later
+                    setSuccess('Login successful!');
+                }
             } else {
                 setSuccess('Registration successful! Please login.');
                 setIsLogin(true);
