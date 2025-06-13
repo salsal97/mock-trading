@@ -50,6 +50,15 @@ users = User.objects.all()
 user_data = []
 
 for user in users:
+    try:
+        is_verified = user.profile.is_verified if hasattr(user, 'profile') else False
+        verification_date = user.profile.verification_date.strftime('%Y-%m-%d %H:%M:%S') if hasattr(user, 'profile') and user.profile.verification_date else 'Never'
+        verified_by = user.profile.verified_by.username if hasattr(user, 'profile') and user.profile.verified_by else 'None'
+    except:
+        is_verified = False
+        verification_date = 'Never'
+        verified_by = 'None'
+
     user_data.append({
         'id': user.id,
         'username': user.username,
@@ -59,12 +68,15 @@ for user in users:
         'is_active': user.is_active,
         'is_staff': user.is_staff,
         'is_superuser': user.is_superuser,
+        'is_verified': is_verified,
+        'verification_date': verification_date,
+        'verified_by': verified_by,
         'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S'),
         'last_login': user.last_login.strftime('%Y-%m-%d %H:%M:%S') if user.last_login else 'Never'
     })
 
 print('\nUser Database Information:')
-print('=' * 80)
+print('=' * 100)
 
 for user in user_data:
     print('\\nUser ID: {}'.format(user['id']))
@@ -75,9 +87,13 @@ for user in user_data:
     print('  - Active: {}'.format(user['is_active']))
     print('  - Staff: {}'.format(user['is_staff']))
     print('  - Superuser: {}'.format(user['is_superuser']))
+    print('  - Verified: {}'.format(user['is_verified']))
+    if user['is_verified']:
+        print('  - Verified on: {}'.format(user['verification_date']))
+        print('  - Verified by: {}'.format(user['verified_by']))
     print('Date Joined: {}'.format(user['date_joined']))
     print('Last Login: {}'.format(user['last_login']))
-    print('-' * 80)
+    print('-' * 100)
 "@
     python -c $pythonCode
     Set-Location ..
@@ -110,6 +126,36 @@ function Start-Application {
     .\start-servers.ps1
 }
 
+# Function to reset admin password
+function Reset-AdminPassword {
+    Write-Host "`nResetting admin password..." -ForegroundColor Yellow
+    Set-Location backend
+    .\venv\Scripts\activate
+    $pythonCode = @"
+import os
+import django
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
+django.setup()
+
+from django.contrib.auth.models import User
+
+try:
+    admin = User.objects.get(username='admin')
+    admin.set_password('admin123')
+    admin.save()
+    print('Admin password has been reset to: admin123')
+except User.DoesNotExist:
+    print('Admin user not found. Creating new admin user...')
+    User.objects.create_superuser('admin', 'admin@example.com', 'admin123')
+    print('New admin user created!')
+    print('Username: admin')
+    print('Password: admin123')
+"@
+    python -c $pythonCode
+    Set-Location ..
+}
+
 # Function to show help
 function Show-Help {
     Write-Host "`nMock Trading Application Management Script" -ForegroundColor Green
@@ -119,6 +165,7 @@ function Show-Help {
     Write-Host "  .\run.ps1 createsuperuser    - Create a superuser if none exists" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 migrate    - Run database migrations" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 createprofiles    - Create profiles for existing users" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 resetadmin    - Reset admin password to default" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 help     - Show this help message" -ForegroundColor Cyan
 }
 
@@ -129,6 +176,7 @@ switch ($Command.ToLower()) {
     "createsuperuser" { Create-SuperUser }
     "migrate" { Run-Migrations }
     "createprofiles" { Create-UserProfiles }
+    "resetadmin" { Reset-AdminPassword }
     "help" { Show-Help }
     default { Show-Help }
 } 

@@ -5,136 +5,103 @@ import './Admin.css';
 
 const Admin = () => {
     const [users, setUsers] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isAdmin, setIsAdmin] = useState(false);
+    const [error, setError] = useState('');
     const navigate = useNavigate();
 
     useEffect(() => {
+        verifyAdminStatus();
+        fetchUsers();
+    }, []);
+
+    const verifyAdminStatus = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
             navigate('/');
             return;
         }
 
-        // Verify admin status
-        verifyAdminStatus();
-    }, [navigate]);
-
-    const verifyAdminStatus = async () => {
         try {
-            const token = localStorage.getItem('token');
+            // Since we don't have a specific verify-admin endpoint,
+            // we'll use the get-all-users endpoint to verify admin status
             const response = await axios.get('http://localhost:8000/api/auth/admin/users/', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { Authorization: `Bearer ${token}` }
             });
-            setIsAdmin(true);
-            setUsers(response.data);
-            setLoading(false);
-        } catch (err) {
-            console.error('Admin verification error:', err);
-            if (err.response?.status === 403) {
-                setError('Access denied. Admin privileges required.');
-                // Clear token and redirect after a short delay
+            // If we get here, the user is an admin
+        } catch (error) {
+            console.error('Error verifying admin status:', error);
+            setError('Error verifying admin status. Please try again.');
+            if (error.response?.status === 403) {
                 setTimeout(() => {
                     localStorage.removeItem('token');
                     navigate('/');
                 }, 2000);
-            } else if (err.response?.status === 500) {
-                setError('Server error. Please try again later.');
-            } else {
-                setError(err.response?.data?.error || 'Failed to verify admin status. Please try again.');
             }
-            setLoading(false);
+        }
+    };
+
+    const fetchUsers = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            const response = await axios.get('http://localhost:8000/api/auth/admin/users/', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setUsers(response.data);
+        } catch (error) {
+            console.error('Error fetching users:', error);
+            setError('Error fetching users. Please try again.');
         }
     };
 
     const handleVerification = async (userId, action) => {
+        const token = localStorage.getItem('token');
         try {
-            const token = localStorage.getItem('token');
-            await axios.post(
-                `http://localhost:8000/api/auth/admin/users/${userId}/verify/`,
-                { action },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                }
+            await axios.post(`http://localhost:8000/api/auth/admin/users/${userId}/verify/`, 
+                { action: action === 'approve' ? 'verify' : 'reject' },
+                { headers: { Authorization: `Bearer ${token}` } }
             );
-            // Refresh the user list
-            verifyAdminStatus();
-        } catch (err) {
-            console.error('Verification error:', err);
-            if (err.response?.status === 403) {
-                setError('Access denied. Admin privileges required.');
-                setTimeout(() => {
-                    localStorage.removeItem('token');
-                    navigate('/');
-                }, 2000);
-            } else {
-                setError(err.response?.data?.error || `Failed to ${action} user. Please try again.`);
-            }
+            fetchUsers();
+        } catch (error) {
+            console.error(`Error ${action}ing user:`, error);
+            setError(`Error ${action}ing user. Please try again.`);
         }
     };
 
-    if (loading) {
-        return <div className="admin-container">Loading...</div>;
-    }
-
-    if (error) {
-        return <div className="admin-container error">{error}</div>;
-    }
-
-    if (!isAdmin) {
-        return <div className="admin-container error">Verifying admin status...</div>;
-    }
-
     return (
         <div className="admin-container">
-            <h1>User Management</h1>
-            <div className="users-table">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Email</th>
-                            <th>Name</th>
-                            <th>Status</th>
-                            <th>Verified</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {users.map(user => (
-                            <tr key={user.id}>
-                                <td>{user.username}</td>
-                                <td>{user.email}</td>
-                                <td>{`${user.first_name} ${user.last_name}`}</td>
-                                <td>{user.is_active ? 'Active' : 'Inactive'}</td>
-                                <td>{user.is_verified ? 'Yes' : 'No'}</td>
-                                <td>
-                                    {!user.is_verified && (
-                                        <button
-                                            onClick={() => handleVerification(user.id, 'verify')}
-                                            className="verify-btn"
-                                        >
-                                            Verify
-                                        </button>
-                                    )}
-                                    {user.is_verified && (
-                                        <button
-                                            onClick={() => handleVerification(user.id, 'reject')}
-                                            className="reject-btn"
-                                        >
-                                            Reject
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            <div className="admin-header">
+                <button className="back-button" onClick={() => navigate('/admin')}>
+                    ← Back to Admin Dashboard
+                </button>
+                <h1>User Management</h1>
+            </div>
+            {error && <div className="error-message">{error}</div>}
+            <div className="users-list">
+                {users.map(user => (
+                    <div key={user.id} className="user-card">
+                        <div className="user-info">
+                            <h3>{user.username}</h3>
+                            <p>Email: {user.email}</p>
+                            <p>Status: {user.is_verified ? 'Verified' : 'Pending'}</p>
+                            <p>Joined: {new Date(user.date_joined).toLocaleDateString()}</p>
+                        </div>
+                        {!user.is_verified && (
+                            <div className="verification-actions">
+                                <button 
+                                    onClick={() => handleVerification(user.id, 'approve')}
+                                    className="approve-button"
+                                >
+                                    Approve
+                                </button>
+                                <button 
+                                    onClick={() => handleVerification(user.id, 'reject')}
+                                    className="reject-button"
+                                >
+                                    Reject
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
     );

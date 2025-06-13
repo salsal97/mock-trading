@@ -54,6 +54,31 @@ def login_user(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    """Get current user's profile data"""
+    user = request.user
+    try:
+        profile_data = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_active': user.is_active,
+            'is_verified': getattr(user.profile, 'is_verified', False),
+            'verification_date': user.profile.verification_date.strftime('%Y-%m-%d %H:%M:%S') if user.profile.verification_date else None,
+            'date_joined': user.date_joined.strftime('%Y-%m-%d %H:%M:%S'),
+            'last_login': user.last_login.strftime('%Y-%m-%d %H:%M:%S') if user.last_login else None
+        }
+        return Response(profile_data)
+    except Exception as e:
+        return Response(
+            {'error': 'Error fetching user profile'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def get_all_users(request):
     """Get all users with their verification status"""
