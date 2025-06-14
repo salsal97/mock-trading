@@ -14,6 +14,7 @@ const Auth = () => {
         last_name: ''
     });
     const [error, setError] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({});
     const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
@@ -23,11 +24,60 @@ const Auth = () => {
             ...formData,
             [e.target.name]: e.target.value
         });
+        
+        // Clear field-specific error when user starts typing
+        if (fieldErrors[e.target.name]) {
+            setFieldErrors({
+                ...fieldErrors,
+                [e.target.name]: null
+            });
+        }
+    };
+
+    const parseErrorResponse = (errorResponse) => {
+        console.log('Error response:', errorResponse); // For debugging
+        
+        // Clear previous errors
+        setError('');
+        setFieldErrors({});
+        
+        if (!errorResponse) {
+            setError('An unexpected error occurred. Please try again.');
+            return;
+        }
+
+        // Handle different error response formats
+        if (errorResponse.error_summary && Array.isArray(errorResponse.error_summary)) {
+            // Use the user-friendly error summary
+            setError(errorResponse.error_summary.join(' '));
+        } else if (errorResponse.message) {
+            // Use the main error message
+            setError(errorResponse.message);
+        }
+
+        // Set field-specific errors if available
+        if (errorResponse.errors && typeof errorResponse.errors === 'object') {
+            const newFieldErrors = {};
+            Object.keys(errorResponse.errors).forEach(field => {
+                if (Array.isArray(errorResponse.errors[field])) {
+                    newFieldErrors[field] = errorResponse.errors[field].join(', ');
+                } else {
+                    newFieldErrors[field] = errorResponse.errors[field];
+                }
+            });
+            setFieldErrors(newFieldErrors);
+        }
+
+        // Fallback: if no specific message, create a generic one
+        if (!errorResponse.message && !errorResponse.error_summary) {
+            setError('Please check your input and try again.');
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
+        setFieldErrors({});
         setSuccess('');
         setLoading(true);
 
@@ -42,10 +92,9 @@ const Auth = () => {
                 
                 // Check if user is admin and redirect accordingly
                 if (response.data.is_admin) {
-                    navigate('/admin');
+                    setTimeout(() => navigate('/admin'), 1000);
                 } else {
-                    // For non-admin users, we'll handle this later
-                    setSuccess('Login successful!');
+                    setTimeout(() => navigate('/dashboard'), 1000);
                 }
             } else {
                 setSuccess('Registration successful! Please login.');
@@ -61,10 +110,28 @@ const Auth = () => {
                 });
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'An error occurred. Please try again.');
+            console.error('Auth error:', err); // For debugging
+            
+            if (err.response?.data) {
+                parseErrorResponse(err.response.data);
+            } else if (err.response?.status === 500) {
+                setError('Server error. Please try again later.');
+            } else if (err.code === 'NETWORK_ERROR' || !err.response) {
+                setError('Network error. Please check your connection and try again.');
+            } else {
+                setError('An unexpected error occurred. Please try again.');
+            }
         } finally {
             setLoading(false);
         }
+    };
+
+    const getFieldError = (fieldName) => {
+        return fieldErrors[fieldName];
+    };
+
+    const hasFieldError = (fieldName) => {
+        return !!fieldErrors[fieldName];
     };
 
     return (
@@ -88,7 +155,11 @@ const Auth = () => {
                             value={formData.username}
                             onChange={handleChange}
                             required
+                            className={hasFieldError('username') ? 'error' : ''}
                         />
+                        {hasFieldError('username') && (
+                            <span className="field-error">{getFieldError('username')}</span>
+                        )}
                     </div>
 
                     {!isLogin && (
@@ -101,7 +172,11 @@ const Auth = () => {
                                     name="email"
                                     value={formData.email}
                                     onChange={handleChange}
+                                    className={hasFieldError('email') ? 'error' : ''}
                                 />
+                                {hasFieldError('email') && (
+                                    <span className="field-error">{getFieldError('email')}</span>
+                                )}
                             </div>
                             <div className="form-group">
                                 <label htmlFor="first_name">First Name</label>
@@ -111,7 +186,11 @@ const Auth = () => {
                                     name="first_name"
                                     value={formData.first_name}
                                     onChange={handleChange}
+                                    className={hasFieldError('first_name') ? 'error' : ''}
                                 />
+                                {hasFieldError('first_name') && (
+                                    <span className="field-error">{getFieldError('first_name')}</span>
+                                )}
                             </div>
                             <div className="form-group">
                                 <label htmlFor="last_name">Last Name</label>
@@ -121,7 +200,11 @@ const Auth = () => {
                                     name="last_name"
                                     value={formData.last_name}
                                     onChange={handleChange}
+                                    className={hasFieldError('last_name') ? 'error' : ''}
                                 />
+                                {hasFieldError('last_name') && (
+                                    <span className="field-error">{getFieldError('last_name')}</span>
+                                )}
                             </div>
                         </>
                     )}
@@ -135,7 +218,11 @@ const Auth = () => {
                             value={formData.password}
                             onChange={handleChange}
                             required
+                            className={hasFieldError('password') ? 'error' : ''}
                         />
+                        {hasFieldError('password') && (
+                            <span className="field-error">{getFieldError('password')}</span>
+                        )}
                     </div>
 
                     {!isLogin && (
@@ -148,7 +235,11 @@ const Auth = () => {
                                 value={formData.password2}
                                 onChange={handleChange}
                                 required
+                                className={hasFieldError('password2') ? 'error' : ''}
                             />
+                            {hasFieldError('password2') && (
+                                <span className="field-error">{getFieldError('password2')}</span>
+                            )}
                         </div>
                     )}
 
@@ -165,14 +256,26 @@ const Auth = () => {
                     {isLogin ? (
                         <p>
                             Don't have an account?{' '}
-                            <a href="#" onClick={() => setIsLogin(false)}>
+                            <a href="#" onClick={(e) => {
+                                e.preventDefault();
+                                setIsLogin(false);
+                                setError('');
+                                setFieldErrors({});
+                                setSuccess('');
+                            }}>
                                 Register here
                             </a>
                         </p>
                     ) : (
                         <p>
                             Already have an account?{' '}
-                            <a href="#" onClick={() => setIsLogin(true)}>
+                            <a href="#" onClick={(e) => {
+                                e.preventDefault();
+                                setIsLogin(true);
+                                setError('');
+                                setFieldErrors({});
+                                setSuccess('');
+                            }}>
                                 Login here
                             </a>
                         </p>

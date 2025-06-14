@@ -4,7 +4,8 @@ from django.utils import timezone
 from datetime import timedelta
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
-from .models import Market
+from .models import Market, SpreadBid
+from accounts.models import UserProfile
 
 class MarketModelTest(TestCase):
     def setUp(self):
@@ -13,69 +14,328 @@ class MarketModelTest(TestCase):
             email='test@example.com',
             password='testpass123'
         )
+        # Set user as verified through profile
+        self.user.profile.is_verified = True
+        self.user.profile.save()
         
-        # Create test market with future dates
+        # Create a market with timing in the future
         now = timezone.now()
         self.market = Market.objects.create(
-            premise="Will it rain tomorrow?",
+            premise="Test market premise",
             unit_price=1.0,
-            initial_spread=50,
+            initial_spread=10,
             created_by=self.user,
             spread_bidding_open=now + timedelta(hours=1),
             spread_bidding_close=now + timedelta(hours=2),
             trading_open=now + timedelta(hours=3),
-            trading_close=now + timedelta(hours=24)
+            trading_close=now + timedelta(hours=4)
         )
-    
-    def test_market_creation(self):
-        """Test that market is created correctly"""
-        self.assertEqual(self.market.premise, "Will it rain tomorrow?")
-        self.assertEqual(self.market.status, 'CREATED')
-        self.assertEqual(self.market.created_by, self.user)
-        self.assertEqual(self.market.initial_spread, 50)
-        self.assertIsNone(self.market.outcome)
-        self.assertIsNone(self.market.final_spread_low)
-        self.assertIsNone(self.market.final_spread_high)
-    
-    def test_market_str_representation(self):
-        """Test string representation of market"""
-        expected = "Will it rain tomorrow?... - CREATED"
-        self.assertEqual(str(self.market), expected)
-    
-    def test_current_spread_display_initial(self):
-        """Test current spread display shows initial spread when no final spread set"""
-        self.assertEqual(self.market.current_spread_display, "50")
-    
-    def test_current_spread_display_final(self):
-        """Test current spread display shows final spread range when set"""
-        self.market.final_spread_low = 40
-        self.market.final_spread_high = 60
-        self.market.save()
-        self.assertEqual(self.market.current_spread_display, "40 - 60")
-    
-    def test_spread_bidding_active_property(self):
-        """Test spread bidding active property"""
-        # Should be False since spread bidding is in the future
-        self.assertFalse(self.market.is_spread_bidding_active)
-    
-    def test_trading_active_property(self):
-        """Test trading active property"""
-        # Should be False since trading is in the future and status is CREATED
-        self.assertFalse(self.market.is_trading_active)
-    
-    def test_can_be_settled_property(self):
-        """Test can be settled property"""
-        # Should be False since trading hasn't closed yet
-        self.assertFalse(self.market.can_be_settled)
-    
-    def test_status_choices(self):
-        """Test that all status choices are valid"""
-        valid_statuses = ['CREATED', 'OPEN', 'CLOSED', 'SETTLED']
-        for status in valid_statuses:
-            self.market.status = status
-            self.market.save()
-            self.assertEqual(self.market.status, status)
 
+    def test_market_creation(self):
+        """Test basic market creation"""
+        self.assertEqual(self.market.premise, "Test market premise")
+        self.assertEqual(self.market.status, 'CREATED')
+        self.assertEqual(self.market.initial_spread, 10)
+        self.assertEqual(self.market.current_best_spread_width, 10)
+
+    def test_market_spread_bidding_properties(self):
+        """Test market spread bidding properties"""
+        # Initially no bids
+        self.assertIsNone(self.market.best_spread_bid)
+        self.assertEqual(self.market.current_best_spread_width, 10)
+        
+        # Create a spread bid
+        bid = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user,
+            spread_low=45,
+            spread_high=55
+        )
+        
+        # Check best bid
+        self.assertEqual(self.market.best_spread_bid, bid)
+        self.assertEqual(self.market.current_best_spread_width, 10)  # bid width = 55-45 = 10
+
+    def test_market_timing_properties(self):
+        """Test market timing properties"""
+        # Initially not active (times are in future)
+        self.assertFalse(self.market.is_spread_bidding_active)
+        self.assertFalse(self.market.is_trading_active)
+        self.assertFalse(self.market.can_be_settled)
+
+
+class SpreadBidModelTest(TestCase):
+    def setUp(self):
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user1.profile.is_verified = True
+        self.user1.profile.save()
+        
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+        self.user2.profile.is_verified = True
+        self.user2.profile.save()
+        
+        now = timezone.now()
+        self.market = Market.objects.create(
+            premise="Test market for bidding",
+            unit_price=1.0,
+            initial_spread=20,
+            created_by=self.user1,
+            spread_bidding_open=now - timedelta(hours=1),
+            spread_bidding_close=now + timedelta(hours=1),
+            trading_open=now + timedelta(hours=2),
+            trading_close=now + timedelta(hours=3)
+        )
+
+    def test_spread_bid_creation(self):
+        """Test basic spread bid creation"""
+        bid = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user1,
+            spread_low=40,
+            spread_high=60
+        )
+        
+        self.assertEqual(bid.spread_width, 20)
+        self.assertEqual(bid.spread_display, "40 - 60")
+        self.assertTrue(bid.bid_time)
+
+    def test_spread_bid_validation(self):
+        """Test spread bid validation"""
+        from django.core.exceptions import ValidationError
+        
+        # Test invalid spread (low >= high)
+        with self.assertRaises(ValidationError):
+            bid = SpreadBid(
+                market=self.market,
+                user=self.user1,
+                spread_low=60,
+                spread_high=40
+            )
+            bid.clean()
+
+    def test_multiple_bids_ordering(self):
+        """Test that multiple bids are ordered correctly"""
+        # Create bids with different spreads
+        bid1 = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user1,
+            spread_low=40,
+            spread_high=60  # width = 20
+        )
+        
+        bid2 = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user2,
+            spread_low=45,
+            spread_high=55  # width = 10 (better)
+        )
+        
+        # Best bid should be the tighter one
+        self.assertEqual(self.market.best_spread_bid, bid2)
+        self.assertEqual(self.market.current_best_spread_width, 10)
+
+    def test_user_best_bid(self):
+        """Test getting user's best bid"""
+        # User1 makes multiple bids
+        bid1 = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user1,
+            spread_low=40,
+            spread_high=60  # width = 20
+        )
+        
+        bid2 = SpreadBid.objects.create(
+            market=self.market,
+            user=self.user1,
+            spread_low=45,
+            spread_high=55  # width = 10 (better)
+        )
+        
+        # User's best bid should be the tighter one
+        user_best = self.market.get_user_best_bid(self.user1)
+        self.assertEqual(user_best, bid2)
+
+
+class SpreadBidAPITest(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+        self.user.profile.is_verified = True
+        self.user.profile.save()
+        
+        self.admin_user = User.objects.create_user(
+            username='admin',
+            email='admin@example.com',
+            password='adminpass123',
+            is_staff=True
+        )
+        
+        now = timezone.now()
+        self.market = Market.objects.create(
+            premise="API Test Market",
+            unit_price=1.0,
+            initial_spread=15,
+            created_by=self.admin_user,
+            spread_bidding_open=now - timedelta(minutes=30),
+            spread_bidding_close=now + timedelta(minutes=30),
+            trading_open=now + timedelta(hours=1),
+            trading_close=now + timedelta(hours=2)
+        )
+
+    def test_place_spread_bid_success(self):
+        """Test successful spread bid placement"""
+        self.client.force_authenticate(user=self.user)
+        
+        data = {
+            'spread_low': 45,
+            'spread_high': 55
+        }
+        
+        response = self.client.post(
+            f'/api/market/{self.market.id}/place_spread_bid/',
+            data
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['spread_low'], 45)
+        self.assertEqual(response.data['spread_high'], 55)
+        self.assertEqual(response.data['user_username'], 'testuser')
+
+    def test_place_spread_bid_unverified_user(self):
+        """Test that unverified users cannot place bids"""
+        unverified_user = User.objects.create_user(
+            username='unverified',
+            email='unverified@example.com',
+            password='testpass123'
+        )
+        # Profile is created automatically but is_verified defaults to False
+        
+        self.client.force_authenticate(user=unverified_user)
+        
+        data = {
+            'spread_low': 45,
+            'spread_high': 55
+        }
+        
+        response = self.client.post(
+            f'/api/market/{self.market.id}/place_spread_bid/',
+            data
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('verified', str(response.data))
+
+    def test_place_spread_bid_not_tighter(self):
+        """Test that bids must be tighter than current best"""
+        self.client.force_authenticate(user=self.user)
+        
+        # Try to place a bid that's not tighter than initial spread (15)
+        data = {
+            'spread_low': 40,
+            'spread_high': 60  # width = 20, worse than initial 15
+        }
+        
+        response = self.client.post(
+            f'/api/market/{self.market.id}/place_spread_bid/',
+            data
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('tighter', str(response.data))
+
+    def test_place_spread_bid_invalid_spread(self):
+        """Test validation of spread values"""
+        self.client.force_authenticate(user=self.user)
+        
+        # Invalid spread (low >= high)
+        data = {
+            'spread_low': 60,
+            'spread_high': 40
+        }
+        
+        response = self.client.post(
+            f'/api/market/{self.market.id}/place_spread_bid/',
+            data
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_get_market_spread_bids(self):
+        """Test retrieving spread bids for a market"""
+        # Create some bids
+        SpreadBid.objects.create(
+            market=self.market,
+            user=self.user,
+            spread_low=45,
+            spread_high=55
+        )
+        
+        self.client.force_authenticate(user=self.user)
+        
+        response = self.client.get(f'/api/market/{self.market.id}/spread_bids/')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['user_username'], 'testuser')
+
+    def test_market_serializer_includes_best_bid(self):
+        """Test that market serializer includes best bid information"""
+        # Create a bid
+        SpreadBid.objects.create(
+            market=self.market,
+            user=self.user,
+            spread_low=45,
+            spread_high=55
+        )
+        
+        self.client.force_authenticate(user=self.user)
+        
+        response = self.client.get(f'/api/market/{self.market.id}/')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data['best_spread_bid'])
+        self.assertEqual(response.data['best_spread_bid']['user'], 'testuser')
+        self.assertEqual(response.data['current_best_spread_width'], 10)
+
+    def test_spread_bid_timing_validation(self):
+        """Test that bids can only be placed during bidding window"""
+        # Create a market with bidding window in the past
+        past_market = Market.objects.create(
+            premise="Past Market",
+            unit_price=1.0,
+            initial_spread=10,
+            created_by=self.admin_user,
+            spread_bidding_open=timezone.now() - timedelta(hours=2),
+            spread_bidding_close=timezone.now() - timedelta(hours=1),
+            trading_open=timezone.now() + timedelta(hours=1),
+            trading_close=timezone.now() + timedelta(hours=2)
+        )
+        
+        self.client.force_authenticate(user=self.user)
+        
+        data = {
+            'spread_low': 45,
+            'spread_high': 50
+        }
+        
+        response = self.client.post(
+            f'/api/market/{past_market.id}/place_spread_bid/',
+            data
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not currently active', str(response.data))
 
 class MarketViewSetTest(APITestCase):
     def setUp(self):

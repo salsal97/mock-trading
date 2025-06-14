@@ -15,6 +15,18 @@
     border-bottom: 1px solid #ddd;
 }
 
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
 .market-header h1 {
     margin: 0;
     color: #333;
@@ -47,6 +59,21 @@
 
 .create-button:hover {
     background-color: #218838;
+}
+
+.logout-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.3s ease;
+}
+
+.logout-button:hover {
+    background-color: #c82333;
 }
 
 .error-message {
@@ -143,7 +170,7 @@
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 1rem;
-    transition: border-color 0.3s ease;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .form-group input:focus,
@@ -327,6 +354,12 @@
         flex-direction: column;
         gap: 1rem;
         text-align: center;
+    }
+    
+    .header-left,
+    .header-right {
+        justify-content: center;
+        flex-wrap: wrap;
     }
     
     .stats-grid {

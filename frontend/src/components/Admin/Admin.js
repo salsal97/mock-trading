@@ -66,13 +66,23 @@ const Admin = () => {
         }
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        navigate('/');
+    };
+
     return (
         <div className="admin-container">
             <div className="admin-header">
-                <button className="back-button" onClick={() => navigate('/admin')}>
-                    ← Back to Admin Dashboard
+                <div className="left-section">
+                    <button className="back-button" onClick={() => navigate('/admin')}>
+                        ← Back to Admin Dashboard
+                    </button>
+                    <h1>User Management</h1>
+                </div>
+                <button className="logout-button" onClick={handleLogout}>
+                    Logout
                 </button>
-                <h1>User Management</h1>
             </div>
             {error && <div className="error-message">{error}</div>}
             <div className="users-list">

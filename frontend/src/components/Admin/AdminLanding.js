@@ -5,9 +5,19 @@ import './AdminLanding.css';
 const AdminLanding = () => {
     const navigate = useNavigate();
 
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        navigate('/');
+    };
+
     return (
         <div className="admin-landing-container">
-            <h1>Admin Dashboard</h1>
+            <div className="admin-header">
+                <h1>Admin Dashboard</h1>
+                <button className="logout-button" onClick={handleLogout}>
+                    Logout
+                </button>
+            </div>
             <div className="admin-options">
                 <button 
                     className="admin-option-button"

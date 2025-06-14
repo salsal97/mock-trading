@@ -88,7 +88,103 @@ class Market(models.Model):
     
     @property
     def current_spread_display(self):
-        """Display current spread - either initial or final range"""
+        """Display current spread - shows best bid width during bidding, final range after"""
+        # If market has final spread set (after bidding), show the range
         if self.final_spread_low is not None and self.final_spread_high is not None:
             return f"{self.final_spread_low} - {self.final_spread_high}"
-        return str(self.initial_spread)
+        
+        # During spread bidding phase, show the current best width
+        if self.status == 'CREATED' and self.best_spread_bid:
+            return f"Best: {self.current_best_spread_width}"
+        
+        # Default to initial spread
+        return f"Initial: {self.initial_spread}"
+    
+    @property
+    def best_spread_bid(self):
+        """Get the current best (tightest) spread bid"""
+        bids = list(self.spread_bids.all())
+        if not bids:
+            return None
+        # Sort by spread width (tightest first), then by bid time (earliest first)
+        return min(bids, key=lambda bid: (bid.spread_width, bid.bid_time))
+    
+    @property
+    def current_best_spread_width(self):
+        """Get the width of the current best spread bid, or initial spread if no bids"""
+        best_bid = self.best_spread_bid
+        if best_bid:
+            return best_bid.spread_width
+        return self.initial_spread
+    
+    def get_user_best_bid(self, user):
+        """Get a user's best (tightest) bid on this market"""
+        user_bids = list(self.spread_bids.filter(user=user))
+        if not user_bids:
+            return None
+        # Sort by spread width (tightest first), then by bid time (earliest first)
+        return min(user_bids, key=lambda bid: (bid.spread_width, bid.bid_time))
+
+
+class SpreadBid(models.Model):
+    """Model for spread bidding - users compete to become market makers"""
+    
+    market = models.ForeignKey(
+        Market,
+        on_delete=models.CASCADE,
+        related_name='spread_bids',
+        help_text="The market this bid is for"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='spread_bids',
+        help_text="User placing the bid"
+    )
+    spread_low = models.IntegerField(
+        help_text="Lower bound of the spread bid"
+    )
+    spread_high = models.IntegerField(
+        help_text="Upper bound of the spread bid"
+    )
+    bid_time = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this bid was placed"
+    )
+    
+    class Meta:
+        ordering = ['bid_time']  # Order by time of bid
+        verbose_name = 'Spread Bid'
+        verbose_name_plural = 'Spread Bids'
+        indexes = [
+            models.Index(fields=['market', 'bid_time']),
+            models.Index(fields=['user', 'market', 'bid_time']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.spread_low}-{self.spread_high} on {self.market.premise[:30]}..."
+    
+    @property
+    def spread_width(self):
+        """Calculate the width of this spread (smaller is better)"""
+        return self.spread_high - self.spread_low
+    
+    @property
+    def spread_display(self):
+        """Display format for the spread"""
+        return f"{self.spread_low} - {self.spread_high}"
+    
+    def clean(self):
+        """Validate the spread bid"""
+        from django.core.exceptions import ValidationError
+        
+        if self.spread_low >= self.spread_high:
+            raise ValidationError("Spread low must be less than spread high")
+        
+        if self.spread_width <= 0:
+            raise ValidationError("Spread width must be positive")
+    
+    def save(self, *args, **kwargs):
+        """Override save to run validation"""
+        self.clean()
+        super().save(*args, **kwargs)

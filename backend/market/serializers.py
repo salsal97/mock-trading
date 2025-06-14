@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Market
+from django.utils import timezone
+from .models import Market, SpreadBid
 
 class MarketSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
@@ -8,6 +9,8 @@ class MarketSerializer(serializers.ModelSerializer):
     is_trading_active = serializers.ReadOnlyField()
     can_be_settled = serializers.ReadOnlyField()
     current_spread_display = serializers.ReadOnlyField()
+    best_spread_bid = serializers.SerializerMethodField()
+    current_best_spread_width = serializers.ReadOnlyField()
     
     class Meta:
         model = Market
@@ -30,10 +33,24 @@ class MarketSerializer(serializers.ModelSerializer):
             'is_spread_bidding_active',
             'is_trading_active',
             'can_be_settled',
+            'best_spread_bid',
+            'current_best_spread_width',
             'created_at',
             'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'final_spread_low', 'final_spread_high']
+    
+    def get_best_spread_bid(self, obj):
+        """Get the best spread bid for this market"""
+        best_bid = obj.best_spread_bid
+        if best_bid:
+            return {
+                'id': best_bid.id,
+                'user': best_bid.user.username,
+                'spread_width': best_bid.spread_width,
+                'bid_time': best_bid.bid_time
+            }
+        return None
 
 class MarketCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating new markets"""
@@ -120,4 +137,94 @@ class MarketUpdateSerializer(serializers.ModelSerializer):
                 "Both final_spread_low and final_spread_high must be provided together"
             )
         
-        return data 
+        return data
+
+
+class SpreadBidSerializer(serializers.ModelSerializer):
+    """Serializer for displaying spread bids"""
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    spread_width = serializers.ReadOnlyField()
+    spread_display = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = SpreadBid
+        fields = [
+            'id',
+            'market',
+            'user',
+            'user_username',
+            'spread_low',
+            'spread_high',
+            'spread_width',
+            'spread_display',
+            'bid_time'
+        ]
+        read_only_fields = ['bid_time', 'user']
+
+
+class SpreadBidCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new spread bids"""
+    
+    class Meta:
+        model = SpreadBid
+        fields = ['market', 'spread_low', 'spread_high']
+    
+    def validate(self, data):
+        """Validate spread bid rules"""
+        market = data['market']
+        user = self.context['request'].user
+        spread_low = data['spread_low']
+        spread_high = data['spread_high']
+        
+        # Check if user is verified
+        if not hasattr(user, 'profile') or not user.profile.is_verified:
+            raise serializers.ValidationError(
+                "Only verified users can place spread bids"
+            )
+        
+        # Check if market is in CREATED state
+        if market.status != 'CREATED':
+            raise serializers.ValidationError(
+                "Can only bid on markets in CREATED state"
+            )
+        
+        # Check if spread bidding window is active
+        now = timezone.now()
+        if not (market.spread_bidding_open <= now <= market.spread_bidding_close):
+            raise serializers.ValidationError(
+                "Spread bidding is not currently active for this market"
+            )
+        
+        # Validate spread values
+        if spread_low >= spread_high:
+            raise serializers.ValidationError(
+                "Spread low must be less than spread high"
+            )
+        
+        new_spread_width = spread_high - spread_low
+        
+        if new_spread_width <= 0:
+            raise serializers.ValidationError(
+                "Spread width must be positive"
+            )
+        
+        # Check if this bid is tighter than the current best spread
+        current_best_width = market.current_best_spread_width
+        if new_spread_width >= current_best_width:
+            raise serializers.ValidationError(
+                f"New bid must be tighter than current best spread width of {current_best_width}"
+            )
+        
+        # Check if this bid is tighter than user's previous bids
+        user_best_bid = market.get_user_best_bid(user)
+        if user_best_bid and new_spread_width >= user_best_bid.spread_width:
+            raise serializers.ValidationError(
+                f"New bid must be tighter than your previous best bid of {user_best_bid.spread_width}"
+            )
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create spread bid with current user"""
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data) 

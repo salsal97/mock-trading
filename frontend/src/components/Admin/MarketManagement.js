@@ -232,6 +232,11 @@ const MarketManagement = () => {
         }
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        navigate('/');
+    };
+
     const formatDateTime = (dateString) => {
         return new Date(dateString).toLocaleString();
     };
@@ -253,16 +258,23 @@ const MarketManagement = () => {
     return (
         <div className="market-management-container">
             <div className="market-header">
-                <button className="back-button" onClick={() => navigate('/admin')}>
-                    ← Back to Admin Dashboard
-                </button>
-                <h1>Market Management</h1>
-                <button 
-                    className="create-button"
-                    onClick={() => setShowCreateForm(!showCreateForm)}
-                >
-                    {showCreateForm ? 'Cancel' : 'Create New Market'}
-                </button>
+                <div className="header-left">
+                    <button className="back-button" onClick={() => navigate('/admin')}>
+                        ← Back to Admin Dashboard
+                    </button>
+                    <h1>Market Management</h1>
+                </div>
+                <div className="header-right">
+                    <button 
+                        className="create-button"
+                        onClick={() => setShowCreateForm(!showCreateForm)}
+                    >
+                        {showCreateForm ? 'Cancel' : 'Create New Market'}
+                    </button>
+                    <button className="logout-button" onClick={handleLogout}>
+                        Logout
+                    </button>
+                </div>
             </div>
 
             {error && <div className="error-message">{error}</div>}

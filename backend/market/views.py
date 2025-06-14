@@ -3,8 +3,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
-from .models import Market
-from .serializers import MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer
+from .models import Market, SpreadBid
+from .serializers import (
+    MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer,
+    SpreadBidSerializer, SpreadBidCreateSerializer
+)
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     """
@@ -126,3 +129,58 @@ class MarketViewSet(viewsets.ModelViewSet):
         }
         
         return Response(stats)
+    
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def spread_bids(self, request, pk=None):
+        """Get all spread bids for a market"""
+        market = self.get_object()
+        bids = market.spread_bids.all().order_by('bid_time')
+        serializer = SpreadBidSerializer(bids, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def place_spread_bid(self, request, pk=None):
+        """Place a spread bid on a market"""
+        market = self.get_object()
+        
+        # Add market to request data
+        data = request.data.copy()
+        data['market'] = market.id
+        
+        serializer = SpreadBidCreateSerializer(
+            data=data, 
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            bid = serializer.save()
+            response_serializer = SpreadBidSerializer(bid)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SpreadBidViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing spread bids.
+    Only read operations are allowed - bids are created through MarketViewSet.
+    """
+    queryset = SpreadBid.objects.all()
+    serializer_class = SpreadBidSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter spread bids based on query parameters"""
+        queryset = SpreadBid.objects.all()
+        
+        # Filter by market if provided
+        market_id = self.request.query_params.get('market')
+        if market_id:
+            queryset = queryset.filter(market_id=market_id)
+        
+        # Filter by user if provided
+        user_id = self.request.query_params.get('user')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        return queryset.order_by('bid_time')
