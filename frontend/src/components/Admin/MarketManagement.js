@@ -10,6 +10,7 @@ const MarketManagement = () => {
     const [loading, setLoading] = useState(true);
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [validationErrors, setValidationErrors] = useState({});
+    const [activating, setActivating] = useState({});
     const [newMarket, setNewMarket] = useState({
         premise: '',
         unit_price: 1.0,
@@ -81,12 +82,12 @@ const MarketManagement = () => {
     const verifyAdminAndFetchData = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
-            navigate('/');
+            navigate('/login');
             return;
         }
 
         try {
-            // Fetch markets and stats in parallel
+            // Verify admin status and fetch data
             const [marketsResponse, statsResponse] = await Promise.all([
                 axios.get('http://localhost:8000/api/market/', {
                     headers: { Authorization: `Bearer ${token}` }
@@ -98,18 +99,18 @@ const MarketManagement = () => {
 
             setMarkets(marketsResponse.data);
             setStats(statsResponse.data);
-            setLoading(false);
+            setError('');
         } catch (error) {
             console.error('Error fetching data:', error);
             if (error.response?.status === 403) {
                 setError('Access denied. Admin privileges required.');
-                setTimeout(() => {
-                    localStorage.removeItem('token');
-                    navigate('/');
-                }, 2000);
+                setTimeout(() => navigate('/dashboard'), 2000);
+            } else if (error.response?.status === 401) {
+                navigate('/login');
             } else {
                 setError('Error loading market data. Please try again.');
             }
+        } finally {
             setLoading(false);
         }
     };
@@ -117,14 +118,13 @@ const MarketManagement = () => {
     const handleCreateMarket = async (e) => {
         e.preventDefault();
         
-        // Final validation before submission
+        // Check for validation errors
         if (Object.keys(validationErrors).length > 0) {
-            setError('Please fix the validation errors before submitting.');
+            setError('Please fix validation errors before submitting.');
             return;
         }
 
         const token = localStorage.getItem('token');
-
         try {
             await axios.post('http://localhost:8000/api/market/', newMarket, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -140,141 +140,148 @@ const MarketManagement = () => {
                 trading_open: '',
                 trading_close: ''
             });
-            setValidationErrors({});
             setShowCreateForm(false);
-            setError(''); // Clear any previous errors
-            verifyAdminAndFetchData();
+            setError('');
+            await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error creating market:', error);
             if (error.response?.data) {
-                // Display backend validation errors
-                const backendErrors = error.response.data;
-                if (typeof backendErrors === 'object') {
-                    const errorMessages = Object.values(backendErrors).flat().join('. ');
-                    setError(`Validation error: ${errorMessages}`);
-                } else {
-                    setError('Error creating market. Please check your input and try again.');
-                }
+                const errorMessage = typeof error.response.data === 'object' 
+                    ? Object.values(error.response.data).flat().join('. ')
+                    : error.response.data;
+                setError(`Error creating market: ${errorMessage}`);
             } else {
-                setError('Error creating market. Please check your input and try again.');
+                setError('Error creating market. Please try again.');
             }
         }
     };
 
     const handleUpdateMarketStatus = async (marketId, newStatus) => {
         const token = localStorage.getItem('token');
-
         try {
             await axios.patch(`http://localhost:8000/api/market/${marketId}/`, 
                 { status: newStatus },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            verifyAdminAndFetchData();
+            await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error updating market status:', error);
             setError('Error updating market status. Please try again.');
         }
     };
 
-    const handleSettleMarket = async (marketId, outcome) => {
+    const handleManualActivate = async (marketId) => {
         const token = localStorage.getItem('token');
-
+        setActivating(prev => ({ ...prev, [marketId]: true }));
+        
         try {
-            await axios.post(`http://localhost:8000/api/market/${marketId}/settle/`, 
-                { outcome: parseInt(outcome) },
+            const response = await axios.post(
+                `http://localhost:8000/api/market/${marketId}/manual_activate/`,
+                {},
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            verifyAdminAndFetchData();
+            
+            // Show success message with details
+            const details = response.data.details;
+            let message = 'Market activated successfully!';
+            
+            if (details.winning_bid) {
+                message += `\nWinner: ${details.winning_bid.user} (spread: ${details.winning_bid.spread_low}-${details.winning_bid.spread_high})`;
+            } else {
+                message += '\nNo bids received - activated with initial spread';
+            }
+            
+            alert(message);
+            await verifyAdminAndFetchData();
         } catch (error) {
-            console.error('Error settling market:', error);
-            setError('Error settling market. Please try again.');
+            console.error('Error activating market:', error);
+            if (error.response?.data) {
+                const errorMessage = error.response.data.error || 'Unknown error';
+                setError(`Error activating market: ${errorMessage}`);
+            } else {
+                setError('Error activating market. Please try again.');
+            }
+        } finally {
+            setActivating(prev => ({ ...prev, [marketId]: false }));
         }
     };
 
     const handleSetFinalSpread = async (marketId) => {
-        const spreadLow = prompt('Enter final spread low value:');
-        const spreadHigh = prompt('Enter final spread high value:');
+        const spreadLow = prompt('Enter final spread low:');
+        const spreadHigh = prompt('Enter final spread high:');
         
-        if (spreadLow === null || spreadHigh === null) return;
-        
-        const token = localStorage.getItem('token');
-
-        try {
-            await axios.patch(`http://localhost:8000/api/market/${marketId}/`, 
-                { 
-                    final_spread_low: parseInt(spreadLow),
-                    final_spread_high: parseInt(spreadHigh)
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            verifyAdminAndFetchData();
-        } catch (error) {
-            console.error('Error setting final spread:', error);
-            setError('Error setting final spread. Please try again.');
+        if (spreadLow && spreadHigh) {
+            const token = localStorage.getItem('token');
+            try {
+                await axios.patch(`http://localhost:8000/api/market/${marketId}/`, 
+                    { 
+                        final_spread_low: parseInt(spreadLow),
+                        final_spread_high: parseInt(spreadHigh)
+                    },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                await verifyAdminAndFetchData();
+            } catch (error) {
+                console.error('Error setting final spread:', error);
+                setError('Error setting final spread. Please try again.');
+            }
         }
     };
 
     const handleDeleteMarket = async (marketId) => {
-        if (!window.confirm('Are you sure you want to delete this market?')) {
-            return;
+        if (window.confirm('Are you sure you want to delete this market?')) {
+            const token = localStorage.getItem('token');
+            try {
+                await axios.delete(`http://localhost:8000/api/market/${marketId}/`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                await verifyAdminAndFetchData();
+            } catch (error) {
+                console.error('Error deleting market:', error);
+                setError('Error deleting market. Please try again.');
+            }
         }
-
-        const token = localStorage.getItem('token');
-
-        try {
-            await axios.delete(`http://localhost:8000/api/market/${marketId}/`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            verifyAdminAndFetchData();
-        } catch (error) {
-            console.error('Error deleting market:', error);
-            setError('Error deleting market. Please try again.');
-        }
-    };
-
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        navigate('/');
     };
 
     const formatDateTime = (dateString) => {
         return new Date(dateString).toLocaleString();
     };
 
-    const getStatusColor = (status) => {
-        const colors = {
-            'CREATED': '#6c757d',
-            'OPEN': '#28a745',
-            'CLOSED': '#ffc107',
-            'SETTLED': '#17a2b8'
-        };
-        return colors[status] || '#6c757d';
+    const getStatusBadgeClass = (status) => {
+        switch (status) {
+            case 'CREATED': return 'status-created';
+            case 'OPEN': return 'status-open';
+            case 'CLOSED': return 'status-closed';
+            case 'SETTLED': return 'status-settled';
+            default: return 'status-default';
+        }
+    };
+
+    const shouldShowAutoActivateButton = (market) => {
+        const now = new Date();
+        const biddingClose = new Date(market.spread_bidding_close);
+        return (
+            market.status === 'CREATED' && 
+            now > biddingClose && 
+            market.final_spread_low === null && 
+            market.final_spread_high === null
+        );
     };
 
     if (loading) {
-        return <div className="market-management-container">Loading...</div>;
+        return <div className="loading">Loading market management...</div>;
     }
 
     return (
-        <div className="market-management-container">
-            <div className="market-header">
-                <div className="header-left">
-                    <button className="back-button" onClick={() => navigate('/admin')}>
-                        ← Back to Admin Dashboard
-                    </button>
-                    <h1>Market Management</h1>
-                </div>
-                <div className="header-right">
-                    <button 
-                        className="create-button"
-                        onClick={() => setShowCreateForm(!showCreateForm)}
-                    >
-                        {showCreateForm ? 'Cancel' : 'Create New Market'}
-                    </button>
-                    <button className="logout-button" onClick={handleLogout}>
-                        Logout
-                    </button>
-                </div>
+        <div className="market-management">
+            <div className="management-header">
+                <h1>Market Management</h1>
+                <button 
+                    className="create-button"
+                    onClick={() => setShowCreateForm(!showCreateForm)}
+                >
+                    {showCreateForm ? 'Cancel' : 'Create New Market'}
+                </button>
             </div>
 
             {error && <div className="error-message">{error}</div>}
@@ -292,12 +299,19 @@ const MarketManagement = () => {
                             <h3>Active Trading</h3>
                             <p className="stat-number">{stats.active_trading}</p>
                         </div>
-                        {Object.entries(stats.markets_by_status).map(([status, count]) => (
-                            <div key={status} className="stat-card">
-                                <h3>{status}</h3>
-                                <p className="stat-number">{count}</p>
+                        <div className="stat-card">
+                            <h3>By Status</h3>
+                            <div className="status-breakdown">
+                                {Object.entries(stats.markets_by_status).map(([status, count]) => (
+                                    <div key={status} className="status-item">
+                                        <span className={`status-badge ${getStatusBadgeClass(status)}`}>
+                                            {status}
+                                        </span>
+                                        <span className="status-count">{count}</span>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        </div>
                     </div>
                 </div>
             )}
@@ -307,25 +321,23 @@ const MarketManagement = () => {
                 <div className="create-form-section">
                     <h2>Create New Market</h2>
                     <form onSubmit={handleCreateMarket} className="create-form">
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label>Market Premise:</label>
-                                <textarea
-                                    value={newMarket.premise}
-                                    onChange={(e) => setNewMarket({...newMarket, premise: e.target.value})}
-                                    required
-                                    placeholder="e.g., Will Bitcoin reach $100k by end of year?"
-                                />
-                            </div>
+                        <div className="form-group">
+                            <label>Market Premise:</label>
+                            <textarea
+                                value={newMarket.premise}
+                                onChange={(e) => setNewMarket({...newMarket, premise: e.target.value})}
+                                placeholder="Enter the market question or premise..."
+                                required
+                                rows="3"
+                            />
                         </div>
-                        
+
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Unit Price:</label>
                                 <input
                                     type="number"
                                     step="0.01"
-                                    min="0.01"
                                     value={newMarket.unit_price}
                                     onChange={(e) => setNewMarket({...newMarket, unit_price: parseFloat(e.target.value)})}
                                     required
@@ -335,11 +347,10 @@ const MarketManagement = () => {
                                 <label>Initial Spread:</label>
                                 <input
                                     type="number"
-                                    min="1"
                                     value={newMarket.initial_spread}
-                                    onChange={(e) => setNewMarket({...newMarket, initial_spread: parseInt(e.target.value)})}
+                                    onChange={(e) => setNewMarket({...newMarket, initial_spread: e.target.value})}
+                                    placeholder="e.g., 10"
                                     required
-                                    placeholder="Starting spread value"
                                 />
                             </div>
                         </div>
@@ -402,13 +413,22 @@ const MarketManagement = () => {
                             </div>
                         </div>
 
-                        <button 
-                            type="submit" 
-                            className="submit-button"
-                            disabled={Object.keys(validationErrors).length > 0}
-                        >
-                            Create Market
-                        </button>
+                        <div className="form-actions">
+                            <button 
+                                type="submit" 
+                                className="submit-button"
+                                disabled={Object.keys(validationErrors).length > 0}
+                            >
+                                Create Market
+                            </button>
+                            <button 
+                                type="button" 
+                                className="cancel-button"
+                                onClick={() => setShowCreateForm(false)}
+                            >
+                                Cancel
+                            </button>
+                        </div>
                     </form>
                 </div>
             )}
@@ -419,41 +439,63 @@ const MarketManagement = () => {
                 <div className="markets-list">
                     {markets.map(market => (
                         <div key={market.id} className="market-card">
-                            <div className="market-header-info">
+                            <div className="market-header">
                                 <h3>{market.premise}</h3>
-                                <span 
-                                    className="status-badge"
-                                    style={{ backgroundColor: getStatusColor(market.status) }}
-                                >
+                                <span className={`status-badge ${getStatusBadgeClass(market.status)}`}>
                                     {market.status}
                                 </span>
                             </div>
                             
                             <div className="market-details">
-                                <div className="detail-row">
+                                <div className="market-info">
                                     <span>Unit Price: ${market.unit_price}</span>
-                                    <span>Spread: {market.current_spread_display}</span>
-                                </div>
-                                <div className="detail-row">
+                                    <span>Current Spread: {market.current_spread_display}</span>
                                     <span>Created by: {market.created_by_username}</span>
-                                    <span>Created: {formatDateTime(market.created_at)}</span>
                                 </div>
-                                <div className="detail-row">
+                                
+                                {/* Best Spread Bid Info */}
+                                {market.best_spread_bid && (
+                                    <div className="best-bid-info">
+                                        <strong>Leading Bid:</strong> Width of {market.best_spread_bid.spread_width} by {market.best_spread_bid.user} 
+                                        <span className="bid-time">
+                                            ({formatDateTime(market.best_spread_bid.bid_time)})
+                                        </span>
+                                    </div>
+                                )}
+                                
+                                {/* Auto-activation status */}
+                                {shouldShowAutoActivateButton(market) && (
+                                    <div className="auto-activate-notice">
+                                        <strong>⚠️ Ready for Auto-Activation:</strong> Bidding window closed, market can be activated
+                                    </div>
+                                )}
+                                
+                                {/* Timing Information */}
+                                <div className="market-timing">
                                     <span>Spread Bidding: {formatDateTime(market.spread_bidding_open)} - {formatDateTime(market.spread_bidding_close)}</span>
-                                </div>
-                                <div className="detail-row">
                                     <span>Trading: {formatDateTime(market.trading_open)} - {formatDateTime(market.trading_close)}</span>
                                 </div>
-                                {market.outcome !== null && (
-                                    <div className="detail-row">
-                                        <span><strong>Outcome: {market.outcome}</strong></span>
+                                
+                                {/* Final Spread Display */}
+                                {market.final_spread_low !== null && market.final_spread_high !== null && (
+                                    <div className="final-spread-info">
+                                        <strong>Final Spread:</strong> {market.final_spread_low} - {market.final_spread_high}
                                     </div>
                                 )}
                             </div>
-
+                            
                             <div className="market-actions">
                                 {market.status === 'CREATED' && (
                                     <>
+                                        {shouldShowAutoActivateButton(market) && (
+                                            <button 
+                                                onClick={() => handleManualActivate(market.id)}
+                                                className="action-button activate-button"
+                                                disabled={activating[market.id]}
+                                            >
+                                                {activating[market.id] ? 'Activating...' : 'Auto-Activate Market'}
+                                            </button>
+                                        )}
                                         <button 
                                             onClick={() => handleSetFinalSpread(market.id)}
                                             className="action-button spread-button"
@@ -484,14 +526,9 @@ const MarketManagement = () => {
                                     </button>
                                 )}
                                 
-                                {market.status === 'CLOSED' && market.can_be_settled && (
+                                {market.status === 'CLOSED' && (
                                     <button 
-                                        onClick={() => {
-                                            const outcome = prompt('Enter the final outcome (number):');
-                                            if (outcome !== null) {
-                                                handleSettleMarket(market.id, outcome);
-                                            }
-                                        }}
+                                        onClick={() => handleUpdateMarketStatus(market.id, 'SETTLED')}
                                         className="action-button settle-button"
                                     >
                                         Settle Market

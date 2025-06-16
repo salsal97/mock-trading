@@ -1,6 +1,9 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Market(models.Model):
     STATUS_CHOICES = [
@@ -87,6 +90,17 @@ class Market(models.Model):
         return now > self.trading_close and self.status == 'CLOSED'
     
     @property
+    def should_auto_activate(self):
+        """Check if market should be automatically activated"""
+        now = timezone.now()
+        return (
+            self.status == 'CREATED' and 
+            now > self.spread_bidding_close and 
+            self.final_spread_low is None and 
+            self.final_spread_high is None
+        )
+    
+    @property
     def current_spread_display(self):
         """Display current spread - shows best bid width during bidding, final range after"""
         # If market has final spread set (after bidding), show the range
@@ -124,6 +138,90 @@ class Market(models.Model):
             return None
         # Sort by spread width (tightest first), then by bid time (earliest first)
         return min(user_bids, key=lambda bid: (bid.spread_width, bid.bid_time))
+    
+    def auto_activate_market(self):
+        """
+        Automatically activate the market by selecting the winning spread bid.
+        
+        This method:
+        1. Picks the bid with the lowest spread (tie-breaker: earliest timestamp)
+        2. Sets final_spread_low, final_spread_high from the winning bid
+        3. Updates created_by to the winning bidder
+        4. Changes market.status to OPEN
+        
+        Returns:
+            dict: Result of the activation with success status and details
+        """
+        try:
+            # Check if market is eligible for auto-activation
+            if not self.should_auto_activate:
+                return {
+                    'success': False,
+                    'reason': 'Market is not eligible for auto-activation',
+                    'details': {
+                        'status': self.status,
+                        'bidding_closed': timezone.now() > self.spread_bidding_close,
+                        'already_activated': self.final_spread_low is not None
+                    }
+                }
+            
+            # Get the winning bid
+            winning_bid = self.best_spread_bid
+            
+            if not winning_bid:
+                # No bids received - use initial spread and keep original creator
+                logger.info(f"Market {self.id}: No bids received, using initial spread")
+                self.final_spread_low = 50 - (self.initial_spread // 2)
+                self.final_spread_high = 50 + (self.initial_spread // 2)
+                # Keep original created_by
+                self.status = 'OPEN'
+                self.save()
+                
+                return {
+                    'success': True,
+                    'reason': 'No bids received, activated with initial spread',
+                    'details': {
+                        'winning_bid': None,
+                        'final_spread_low': self.final_spread_low,
+                        'final_spread_high': self.final_spread_high,
+                        'market_maker': self.created_by.username
+                    }
+                }
+            
+            # Apply winning bid
+            logger.info(f"Market {self.id}: Activating with winning bid from {winning_bid.user.username}")
+            
+            self.final_spread_low = winning_bid.spread_low
+            self.final_spread_high = winning_bid.spread_high
+            self.created_by = winning_bid.user  # Winner becomes the market maker
+            self.status = 'OPEN'
+            self.save()
+            
+            return {
+                'success': True,
+                'reason': 'Market activated with winning bid',
+                'details': {
+                    'winning_bid': {
+                        'id': winning_bid.id,
+                        'user': winning_bid.user.username,
+                        'spread_low': winning_bid.spread_low,
+                        'spread_high': winning_bid.spread_high,
+                        'spread_width': winning_bid.spread_width,
+                        'bid_time': winning_bid.bid_time
+                    },
+                    'final_spread_low': self.final_spread_low,
+                    'final_spread_high': self.final_spread_high,
+                    'market_maker': self.created_by.username
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error auto-activating market {self.id}: {str(e)}")
+            return {
+                'success': False,
+                'reason': f'Error during activation: {str(e)}',
+                'details': {'error': str(e)}
+            }
 
 
 class SpreadBid(models.Model):

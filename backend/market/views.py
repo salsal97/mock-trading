@@ -3,24 +3,43 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
+from django.contrib.auth.models import User
+from django.utils import timezone
 from .models import Market, SpreadBid
 from .serializers import (
     MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer,
     SpreadBidSerializer, SpreadBidCreateSerializer
 )
+from .permissions import IsAdminOrReadOnly
+import logging
 
-class IsAdminOrReadOnly(permissions.BasePermission):
+logger = logging.getLogger(__name__)
+
+def auto_activate_eligible_markets():
     """
-    Custom permission to only allow admin users to create/edit markets.
-    Regular authenticated users can only read.
+    Helper function to auto-activate markets that are eligible.
+    This implements lazy evaluation - markets are activated when accessed.
     """
-    def has_permission(self, request, view):
-        # Read permissions for any authenticated user
-        if request.method in permissions.SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        
-        # Write permissions only for admin users
-        return request.user and request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
+    eligible_markets = Market.objects.filter(
+        status='CREATED',
+        spread_bidding_close__lt=timezone.now(),
+        final_spread_low__isnull=True,
+        final_spread_high__isnull=True
+    )
+    
+    activated_count = 0
+    for market in eligible_markets:
+        result = market.auto_activate_market()
+        if result['success']:
+            activated_count += 1
+            logger.info(f"Auto-activated market {market.id}: {result['reason']}")
+        else:
+            logger.warning(f"Failed to auto-activate market {market.id}: {result['reason']}")
+    
+    if activated_count > 0:
+        logger.info(f"Lazy evaluation: auto-activated {activated_count} markets")
+    
+    return activated_count
 
 class MarketViewSet(viewsets.ModelViewSet):
     """
@@ -41,6 +60,9 @@ class MarketViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter markets based on query parameters"""
+        # Auto-activate eligible markets (lazy evaluation)
+        auto_activate_eligible_markets()
+        
         queryset = Market.objects.all()
         
         # Filter by status if provided
@@ -54,6 +76,12 @@ class MarketViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(status='OPEN')
         
         return queryset.order_by('-created_at')
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Override retrieve to auto-activate market if eligible"""
+        # Auto-activate eligible markets before retrieving
+        auto_activate_eligible_markets()
+        return super().retrieve(request, *args, **kwargs)
     
     def perform_create(self, serializer):
         """Set the created_by field to the current user when creating a market"""
@@ -108,6 +136,9 @@ class MarketViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, IsAdminUser])
     def stats(self, request):
         """Get market statistics for admin dashboard"""
+        # Auto-activate eligible markets before generating stats
+        auto_activate_eligible_markets()
+        
         total_markets = Market.objects.count()
         markets_by_status = {}
         
@@ -143,21 +174,39 @@ class MarketViewSet(viewsets.ModelViewSet):
         """Place a spread bid on a market"""
         market = self.get_object()
         
-        # Add market to request data
-        data = request.data.copy()
-        data['market'] = market.id
-        
+        # Create serializer with market and user context
         serializer = SpreadBidCreateSerializer(
-            data=data, 
+            data={**request.data, 'market': market.id},
             context={'request': request}
         )
         
         if serializer.is_valid():
-            bid = serializer.save()
-            response_serializer = SpreadBidSerializer(bid)
+            # Save the bid with the authenticated user
+            spread_bid = serializer.save(user=request.user)
+            
+            # Return the created bid data
+            response_serializer = SpreadBidSerializer(spread_bid)
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminUser])
+    def manual_activate(self, request, pk=None):
+        """Manually activate a market (admin only)"""
+        market = self.get_object()
+        
+        result = market.auto_activate_market()
+        
+        if result['success']:
+            return Response({
+                'message': 'Market activated successfully',
+                'details': result['details']
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': result['reason'],
+                'details': result['details']
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SpreadBidViewSet(viewsets.ReadOnlyModelViewSet):
