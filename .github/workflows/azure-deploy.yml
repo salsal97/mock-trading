@@ -13,15 +13,32 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    # Add PostgreSQL service for testing
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     # Add environment variables for Django commands
     env:
       SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-      DB_NAME: dummy_test_db
-      DB_USER: dummy_user
-      DB_PASSWORD: dummy_password
-      DB_HOST: dummy_host
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
       DB_PORT: 5432
       DEBUG: False
+      GITHUB_ACTIONS: true
 
     steps:
       - name: 📥 Checkout Code
@@ -43,6 +60,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
+
+      - name: 🔍 Verify Database Connection
+        run: |
+          cd backend
+          python manage.py check --database default
 
       - name: 🛠 Build React & Copy to Django
         run: |

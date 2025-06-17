@@ -114,6 +114,11 @@ DATABASES = {
     }
 }
 
+# For testing, disable SSL requirement (GitHub Actions PostgreSQL doesn't use SSL)
+import sys
+if 'test' in sys.argv or os.environ.get('GITHUB_ACTIONS'):
+    DATABASES['default']['OPTIONS'] = {}
+
 # Validate required database environment variables
 required_db_vars = ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST']
 missing_vars = [var for var in required_db_vars if not os.environ.get(var)]
