@@ -150,11 +150,29 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
+# Timezone configuration
+TIME_ZONE = 'UTC'  # Keep UTC for database storage
 USE_I18N = True
+USE_TZ = True  # Enable timezone support
 
-USE_TZ = True
+# Add timezone information for debugging
+import pytz
+from datetime import datetime
+
+# Log timezone information for debugging
+import logging
+logger = logging.getLogger(__name__)
+
+def log_timezone_info():
+    """Log current timezone information for debugging"""
+    utc_now = datetime.now(pytz.UTC)
+    logger.info(f"Server UTC time: {utc_now}")
+    logger.info(f"Django TIME_ZONE setting: {TIME_ZONE}")
+    logger.info(f"Django USE_TZ setting: {USE_TZ}")
+
+# Call on startup (only in development)
+if DEBUG:
+    log_timezone_info()
 
 
 # Static files (CSS, JavaScript, Images)

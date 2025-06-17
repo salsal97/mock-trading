@@ -74,7 +74,7 @@ class Command(BaseCommand):
                 if result['success']:
                     activated_count += 1
                     self.stdout.write(
-                        self.style.SUCCESS(f'  ✓ {result["reason"]}')
+                        self.style.SUCCESS(f'  SUCCESS {result["reason"]}')
                     )
                     
                     details = result['details']
@@ -95,7 +95,7 @@ class Command(BaseCommand):
                 else:
                     failed_count += 1
                     self.stdout.write(
-                        self.style.ERROR(f'  ✗ {result["reason"]}')
+                        self.style.ERROR(f'  FAILED {result["reason"]}')
                     )
                     if 'error' in result['details']:
                         self.stdout.write(

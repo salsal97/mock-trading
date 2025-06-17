@@ -1,39 +1,36 @@
 #!/bin/bash
 
-echo "🏗️ Building React frontend and integrating with Django..."
+echo "Building React frontend and integrating with Django..."
 
-# Navigate to frontend and build
-echo "📦 Installing frontend dependencies..."
+# Set production environment
+export NODE_ENV=production
+
+# Navigate to frontend directory and build
 cd frontend
-npm ci --production
 
-echo "⚛️ Building React app for production..."
-# Set NODE_ENV=production explicitly for the build
-NODE_ENV=production npm run build
+echo "Building React app for production..."
+npm run build
 
-# Go back to root
+if [ $? -ne 0 ]; then
+    echo "ERROR: Frontend build failed"
+    exit 1
+fi
+
 cd ..
 
-echo "📁 Preparing Django static files..."
-
-# Create necessary directories
+# Create backend static directory if it doesn't exist
 mkdir -p backend/static
-mkdir -p backend/templates
-mkdir -p backend/staticfiles
 
-# Clean previous builds
+# Remove old static files
 rm -rf backend/static/*
-rm -rf backend/templates/index.html
 
-# Copy React build to Django static files
-echo "📋 Copying React build files..."
-cp -r frontend/build/static/* backend/static/ 2>/dev/null || echo "No static subdirectory found"
+# Copy React build files to Django static directory
+echo "Copying React build files..."
+cp -r frontend/build/* backend/static/
+
+# Create index.html in templates directory for Django to serve
+mkdir -p backend/templates
 cp frontend/build/index.html backend/templates/
-cp -r frontend/build/* backend/staticfiles/ 2>/dev/null || echo "Backup copy complete"
 
-# Copy additional React files (manifest, favicon, etc.)
-cp frontend/build/manifest.json backend/static/ 2>/dev/null || echo "No manifest.json found"
-cp frontend/build/favicon.ico backend/static/ 2>/dev/null || echo "No favicon.ico found"
-
-echo "✅ Frontend build complete and integrated with Django!"
-echo "🎯 React app will be served by Django at runtime" 
+echo "Frontend build complete and integrated with Django!"
+echo "React app will be served by Django at runtime" 

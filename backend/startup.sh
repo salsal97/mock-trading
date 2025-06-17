@@ -1,31 +1,30 @@
 #!/bin/bash
+echo "Starting Mock Trading App on Azure..."
 
-echo "🚀 Starting Mock Trading App on Azure..."
+# Set environment variables for production
+export DJANGO_SETTINGS_MODULE=mock_trading.settings
+export PYTHONPATH=/home/site/wwwroot
 
-# Install Python dependencies
-echo "📦 Installing Python dependencies..."
-pip install -r requirements.txt
+# Change to the application directory
+cd /home/site/wwwroot
 
-# Run database migrations
-echo "🗃️ Running database migrations..."
-python manage.py migrate
+echo "Running database migrations..."
+python manage.py migrate --noinput
 
-# Collect static files
-echo "📊 Collecting static files..."
+echo "Collecting static files..."
 python manage.py collectstatic --noinput
 
-# Create superuser if it doesn't exist (for initial setup)
-echo "👤 Setting up admin user..."
-python manage.py shell -c "
-from django.contrib.auth import get_user_model
-User = get_user_model()
-if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', 'admin@mocktrading.com', 'admin123')
-    print('✅ Admin user created: admin/admin123')
-else:
-    print('✅ Admin user already exists')
-"
+# Create superuser if it doesn't exist
+python manage.py shell << EOF
+from django.contrib.auth.models import User
+import os
 
-# Start Gunicorn server
-echo "🌟 Starting Gunicorn server..."
-exec gunicorn mock_trading.wsgi:application --bind=0.0.0.0:$PORT --workers=2 --timeout=120 
+if not User.objects.filter(username='admin').exists():
+    User.objects.create_superuser('admin', 'admin@example.com', 'admin123')
+    print('Admin user created: admin/admin123')
+else:
+    print('Admin user already exists')
+EOF
+
+echo "Starting Gunicorn server..."
+exec gunicorn --bind 0.0.0.0:8000 --workers 2 mock_trading.wsgi:application 

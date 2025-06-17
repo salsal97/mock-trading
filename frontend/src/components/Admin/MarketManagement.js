@@ -10,6 +10,8 @@ const MarketManagement = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
     const [showCreateForm, setShowCreateForm] = useState(false);
+    const [showEditForm, setShowEditForm] = useState(false);
+    const [editingMarket, setEditingMarket] = useState(null);
     const [validationErrors, setValidationErrors] = useState({});
     const [activating, setActivating] = useState({});
     const [newMarket, setNewMarket] = useState({
@@ -20,6 +22,17 @@ const MarketManagement = () => {
         spread_bidding_close: '',
         trading_open: '',
         trading_close: ''
+    });
+    const [editMarket, setEditMarket] = useState({
+        premise: '',
+        unit_price: 1.0,
+        initial_spread: '',
+        spread_bidding_open: '',
+        spread_bidding_close: '',
+        trading_open: '',
+        trading_close: '',
+        status: '',
+        outcome: ''
     });
     const navigate = useNavigate();
 
@@ -155,6 +168,80 @@ const MarketManagement = () => {
                 setError('Error creating market. Please try again.');
             }
         }
+    };
+
+    const handleEditMarket = async (e) => {
+        e.preventDefault();
+        
+        if (!editingMarket) return;
+
+        const token = localStorage.getItem('token');
+        try {
+            const response = await axios.patch(
+                `${API_BASE_URL}/api/market/${editingMarket.id}/edit/`, 
+                editMarket,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            // Reset form and refresh data
+            setEditingMarket(null);
+            setShowEditForm(false);
+            setError('');
+            await verifyAdminAndFetchData();
+            
+            alert('Market updated successfully!');
+        } catch (error) {
+            console.error('Error updating market:', error);
+            if (error.response?.data?.errors) {
+                const errorMessage = typeof error.response.data.errors === 'object' 
+                    ? Object.values(error.response.data.errors).flat().join('. ')
+                    : error.response.data.errors;
+                setError(`Error updating market: ${errorMessage}`);
+            } else {
+                setError('Error updating market. Please try again.');
+            }
+        }
+    };
+
+    const startEditMarket = (market) => {
+        setEditingMarket(market);
+        
+        // Convert datetime strings to local datetime-local format
+        const formatForInput = (dateString) => {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            // Convert to local timezone for editing
+            const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+            return localDate.toISOString().slice(0, 16);
+        };
+
+        setEditMarket({
+            premise: market.premise,
+            unit_price: market.unit_price,
+            initial_spread: market.initial_spread,
+            spread_bidding_open: formatForInput(market.spread_bidding_open),
+            spread_bidding_close: formatForInput(market.spread_bidding_close),
+            trading_open: formatForInput(market.trading_open),
+            trading_close: formatForInput(market.trading_close),
+            status: market.status,
+            outcome: market.outcome || ''
+        });
+        
+        setShowEditForm(true);
+        setError('');
+        
+        // Log timezone debugging info
+        if (market.timezone_info) {
+            console.log('Timezone Debug Info:', market.timezone_info);
+            console.log('Server Time:', market.server_time);
+            console.log('Local Time:', new Date().toISOString());
+        }
+    };
+
+    const cancelEdit = () => {
+        setEditingMarket(null);
+        setShowEditForm(false);
+        setError('');
     };
 
     const handleUpdateMarketStatus = async (marketId, newStatus) => {
@@ -434,6 +521,136 @@ const MarketManagement = () => {
                 </div>
             )}
 
+            {/* Edit Market Form */}
+            {showEditForm && editingMarket && (
+                <div className="create-form-section">
+                    <h2>Edit Market: {editingMarket.premise.substring(0, 50)}...</h2>
+                    <div className="timezone-debug">
+                        <small>
+                            <strong>Timezone Info:</strong> Times are displayed in your local timezone for editing. 
+                            Server stores in UTC. Current server time: {editingMarket.server_time ? new Date(editingMarket.server_time).toLocaleString() : 'N/A'}
+                        </small>
+                    </div>
+                    <form onSubmit={handleEditMarket} className="create-form">
+                        <div className="form-group">
+                            <label>Market Premise:</label>
+                            <textarea
+                                value={editMarket.premise}
+                                onChange={(e) => setEditMarket({...editMarket, premise: e.target.value})}
+                                placeholder="Enter the market question or premise..."
+                                required
+                                rows="3"
+                            />
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Unit Price:</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editMarket.unit_price}
+                                    onChange={(e) => setEditMarket({...editMarket, unit_price: parseFloat(e.target.value)})}
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Initial Spread:</label>
+                                <input
+                                    type="number"
+                                    value={editMarket.initial_spread}
+                                    onChange={(e) => setEditMarket({...editMarket, initial_spread: e.target.value})}
+                                    placeholder="e.g., 10"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Spread Bidding Open:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={editMarket.spread_bidding_open}
+                                    onChange={(e) => setEditMarket({...editMarket, spread_bidding_open: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Spread Bidding Close:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={editMarket.spread_bidding_close}
+                                    onChange={(e) => setEditMarket({...editMarket, spread_bidding_close: e.target.value})}
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Trading Open:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={editMarket.trading_open}
+                                    onChange={(e) => setEditMarket({...editMarket, trading_open: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Trading Close:</label>
+                                <input
+                                    type="datetime-local"
+                                    value={editMarket.trading_close}
+                                    onChange={(e) => setEditMarket({...editMarket, trading_close: e.target.value})}
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>Status:</label>
+                                <select
+                                    value={editMarket.status}
+                                    onChange={(e) => setEditMarket({...editMarket, status: e.target.value})}
+                                >
+                                    <option value="CREATED">Created</option>
+                                    <option value="OPEN">Open</option>
+                                    <option value="CLOSED">Closed</option>
+                                    <option value="SETTLED">Settled</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Outcome (for settled markets):</label>
+                                <input
+                                    type="number"
+                                    value={editMarket.outcome}
+                                    onChange={(e) => setEditMarket({...editMarket, outcome: e.target.value})}
+                                    placeholder="Final outcome value"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-actions">
+                            <button 
+                                type="submit" 
+                                className="submit-button"
+                            >
+                                Update Market
+                            </button>
+                            <button 
+                                type="button" 
+                                className="cancel-button"
+                                onClick={cancelEdit}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
             {/* Markets List */}
             <div className="markets-section">
                 <h2>All Markets ({markets.length})</h2>
@@ -486,6 +703,14 @@ const MarketManagement = () => {
                             </div>
                             
                             <div className="market-actions">
+                                {/* Edit button - available for all markets */}
+                                <button 
+                                    onClick={() => startEditMarket(market)}
+                                    className="action-button edit-button"
+                                >
+                                    Edit Market
+                                </button>
+                                
                                 {market.status === 'CREATED' && (
                                     <>
                                         {shouldShowAutoActivateButton(market) && (

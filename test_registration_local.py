@@ -36,23 +36,27 @@ def test_registration():
         print(f"Response Body: {json.dumps(response.json(), indent=2)}")
         
         if response.status_code == 201:
-            print("✅ Registration successful!")
+            print("Registration successful!")
+            print(f"Response: {response.json()}")
             return True
         else:
-            print("❌ Registration failed")
+            print("Registration failed")
+            print(f"Status: {response.status_code}")
+            print(f"Response: {response.text}")
             return False
             
     except requests.exceptions.ConnectionError:
-        print("❌ Could not connect to server.")
-        print(f"Make sure server is running at: {base_url}")
+        print("Could not connect to server.")
+        print("Make sure Django server is running: python manage.py runserver")
         print("For local testing: python manage.py runserver")
         print("For Azure testing: set API_BASE_URL=https://salonis-mock-trading-app.azurewebsites.net")
         return False
     except requests.exceptions.Timeout:
-        print("❌ Request timed out")
+        print("Request timed out")
+        print("Server might be slow to respond")
         return False
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return False
 
 if __name__ == '__main__':

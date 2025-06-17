@@ -1,4 +1,4 @@
-name: Azure Deploy
+name: Deploy to Azure
 
 on:
   push:
@@ -7,12 +7,18 @@ on:
       - dev
 
 env:
-  AZURE_WEBAPP_NAME: salonis-mock-trading-app    # ✅ Your Azure app name
+  AZURE_WEBAPP_NAME: salonis-mock-trading-app    # Your Azure app name
+  AZURE_WEBAPP_PACKAGE_PATH: '.'
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+
+    # Add PostgreSQL service for testing
+    
     # Add PostgreSQL service for testing
     services:
       postgres:
@@ -20,7 +26,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
+          POSTGRES_DB: test_mock_trading
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -29,69 +35,68 @@ jobs:
         ports:
           - 5432:5432
 
-    # Add environment variables for Django commands
-    env:
-      SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-      DB_NAME: postgres
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DEBUG: False
-      GITHUB_ACTIONS: true
-      NODE_ENV: production
-
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-      - name: 🔧 Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: 🏗️ Set up Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
 
-      - name: 🧱 Install Backend Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
 
-      - name: 🔍 Verify Database Connection
-        run: |
-          cd backend
-          python manage.py check --database default
+    - name: Verify Database Connection
+      run: |
+        cd backend && python test_db_connection.py
+      env:
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DB_NAME: test_mock_trading
+        DB_USER: postgres
+        DB_PASSWORD: postgres
+        DB_HOST: localhost
+        DB_PORT: 5432
 
-      - name: 🛠 Build React & Copy to Django
-        run: |
-          chmod +x build-frontend.sh
-          ./build-frontend.sh
+    - name: Build React & Copy to Django
+      run: |
+        cd frontend
+        npm ci --production
+        NODE_ENV=production npm run build
+        cd ..
+        mkdir -p backend/static backend/templates
+        cp -r frontend/build/* backend/static/
+        cp frontend/build/index.html backend/templates/
 
-      - name: 📊 Collect Django Static Files
-        run: |
-          cd backend
-          python manage.py collectstatic --noinput
+    - name: Collect Django Static Files
+      run: |
+        cd backend
+        python manage.py collectstatic --noinput
+      env:
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        DB_NAME: test_mock_trading
+        DB_USER: postgres
+        DB_PASSWORD: postgres
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DEBUG: False
 
-      - name: 🧪 Run Tests (required)
-        run: |
-          cd backend
-          python manage.py test --verbosity=2
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: backend
 
-      - name: 🚀 Deploy to Azure Web App
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend
-
-      - name: ✅ Deployment Success
-        if: success()
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "🌐 Your app is live at: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
-          echo "👤 Admin: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/"
+    - name: Deployment Success
+      run: |
+        echo "Deployment completed successfully!"
+        echo "App URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"

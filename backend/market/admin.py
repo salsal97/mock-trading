@@ -114,10 +114,10 @@ class MarketAdmin(admin.ModelAdmin):
                 result = market.auto_activate_market()
                 if result['success']:
                     activated_count += 1
-                    messages.append(f"✓ Market {market.id}: {result['reason']}")
+                    messages.append(f"SUCCESS Market {market.id}: {result['reason']}")
                 else:
                     failed_count += 1
-                    messages.append(f"✗ Market {market.id}: {result['reason']}")
+                    messages.append(f"FAILED Market {market.id}: {result['reason']}")
             else:
                 messages.append(f"- Market {market.id}: Not eligible for auto-activation")
         

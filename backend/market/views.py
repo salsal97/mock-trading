@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from .models import Market, SpreadBid
 from .serializers import (
-    MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer,
+    MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer, MarketEditSerializer,
     SpreadBidSerializer, SpreadBidCreateSerializer
 )
 from .permissions import IsAdminOrReadOnly
@@ -205,21 +205,57 @@ class MarketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminUser])
     def manual_activate(self, request, pk=None):
         """Manually activate a market (admin only)"""
-        # Get market directly without triggering auto-activation
-        market = get_object_or_404(Market, pk=pk)
+        market = self.get_object()
+        
+        if not market.should_auto_activate:
+            return Response(
+                {'error': 'Market is not eligible for activation'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         result = market.auto_activate_market()
         
         if result['success']:
+            serializer = MarketSerializer(market)
             return Response({
-                'message': 'Market activated successfully',
-                'details': result['details']
-            }, status=status.HTTP_200_OK)
+                'message': result['reason'],
+                'details': result['details'],
+                'market': serializer.data
+            })
         else:
+            return Response(
+                {'error': result['reason']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['put', 'patch'], permission_classes=[IsAuthenticated, IsAdminUser])
+    def edit(self, request, pk=None):
+        """Comprehensive market editing for admins"""
+        market = self.get_object()
+        
+        # Use partial update for PATCH, full update for PUT
+        partial = request.method == 'PATCH'
+        
+        serializer = MarketEditSerializer(
+            market, 
+            data=request.data, 
+            partial=partial
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # Return full market data
+            response_serializer = MarketSerializer(market)
             return Response({
-                'error': result['reason'],
-                'details': result['details']
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'message': 'Market updated successfully',
+                'market': response_serializer.data
+            })
+        else:
+            return Response(
+                {'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 class SpreadBidViewSet(viewsets.ReadOnlyModelViewSet):
