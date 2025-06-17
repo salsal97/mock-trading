@@ -13,6 +13,16 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    # Add environment variables for Django commands
+    env:
+      SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DB_NAME: dummy_test_db
+      DB_USER: dummy_user
+      DB_PASSWORD: dummy_password
+      DB_HOST: dummy_host
+      DB_PORT: 5432
+      DEBUG: False
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v3
@@ -61,4 +71,4 @@ jobs:
         run: |
           echo "🎉 Deployment successful!"
           echo "🌐 Your app is live at: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
-          echo "👤 Admin: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/" 
+          echo "👤 Admin: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/"
