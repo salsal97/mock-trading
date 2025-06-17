@@ -10,4 +10,7 @@ router.register(r'trades', views.TradeViewSet, basename='trade')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('<int:market_id>/settle/', views.settle_market, name='settle_market'),
+    path('trade-history/', views.trade_history, name='trade_history'),
+    path('auto-settle/', views.auto_settle_markets, name='auto_settle_markets'),
 ] 

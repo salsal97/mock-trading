@@ -16,6 +16,7 @@ const MarketManagement = () => {
     const [showEditForm, setShowEditForm] = useState(false);
     const [editingMarket, setEditingMarket] = useState(null);
     const [validationErrors, setValidationErrors] = useState({});
+    const [timingError, setTimingError] = useState('');
     const [activating, setActivating] = useState({});
     const [newMarket, setNewMarket] = useState({
         premise: '',
@@ -41,7 +42,7 @@ const MarketManagement = () => {
 
     useEffect(() => {
         verifyAdminAndFetchData();
-    }, []);
+    }, [navigate]);
 
     // Real-time validation as user types
     useEffect(() => {
@@ -49,29 +50,30 @@ const MarketManagement = () => {
         setValidationErrors(errors);
     }, [newMarket.spread_bidding_open, newMarket.spread_bidding_close, newMarket.trading_open, newMarket.trading_close]);
 
+    useEffect(() => {
+        if (newMarket.activationTime && newMarket.closingTime) {
+            const validationResult = validateMarketTiming(newMarket.activationTime, newMarket.closingTime);
+            setTimingError(validationResult.error || '');
+        }
+    }, [newMarket.activationTime, newMarket.closingTime]);
+
     const verifyAdminAndFetchData = async () => {
         try {
             setLoading(true);
             setError('');
             
-            // Verify admin status and fetch data
-            const [marketsResponse, statsResponse] = await Promise.all([
-                apiGet('/api/market/'),
-                apiGet('/api/market/stats/').catch(() => ({ data: null })) // Stats endpoint might not exist
+            await Promise.all([
+                apiGet('/api/auth/verify-admin/'),
+                fetchMarkets()
             ]);
-
-            setMarkets(marketsResponse);
-            setStats(statsResponse.data);
         } catch (error) {
-            console.error('Error fetching data:', error);
-            const errorMessage = handleApiError(error);
-            setError(errorMessage);
-            
-            if (error.response?.status === 403) {
-                setTimeout(() => navigate('/dashboard'), 2000);
-            } else if (shouldRedirectToLogin(error)) {
-                navigate('/login');
+            console.error('Error in admin verification or data fetch:', error);
+            if (shouldRedirectToLogin(error)) {
+                navigate('/auth');
+                return;
             }
+            handleApiError(error);
+            setError('Failed to verify admin status or load data');
         } finally {
             setLoading(false);
         }
@@ -105,7 +107,7 @@ const MarketManagement = () => {
         } catch (error) {
             console.error('Error creating market:', error);
             const errorMessage = handleApiError(error);
-            setError(`Error creating market: ${errorMessage}`);
+                setError(`Error creating market: ${errorMessage}`);
         }
     };
 
@@ -195,7 +197,7 @@ const MarketManagement = () => {
         } catch (error) {
             console.error('Error activating market:', error);
             const errorMessage = handleApiError(error);
-            setError(`Error activating market: ${errorMessage}`);
+                setError(`Error activating market: ${errorMessage}`);
         } finally {
             setActivating(prev => ({ ...prev, [marketId]: false }));
         }
@@ -208,8 +210,8 @@ const MarketManagement = () => {
         if (spreadLow && spreadHigh) {
             try {
                 await apiPatch(`/api/market/${marketId}/`, { 
-                    final_spread_low: parseInt(spreadLow),
-                    final_spread_high: parseInt(spreadHigh)
+                        final_spread_low: parseInt(spreadLow),
+                        final_spread_high: parseInt(spreadHigh)
                 });
                 await verifyAdminAndFetchData();
             } catch (error) {
@@ -233,6 +235,11 @@ const MarketManagement = () => {
         }
     };
 
+    const fetchMarkets = async () => {
+        const response = await apiGet('/api/market/');
+        setMarkets(response);
+    };
+
     if (loading) {
         return <div className="loading">Loading market management...</div>;
     }
@@ -244,15 +251,15 @@ const MarketManagement = () => {
                     <button className="back-button" onClick={() => navigate('/admin')}>
                         ← Back to Admin
                     </button>
-                    <h1>Market Management</h1>
+                <h1>Market Management</h1>
                 </div>
                 <div className="header-right">
-                    <button 
-                        className="create-button"
-                        onClick={() => setShowCreateForm(!showCreateForm)}
-                    >
-                        {showCreateForm ? 'Cancel' : 'Create New Market'}
-                    </button>
+                <button 
+                    className="create-button"
+                    onClick={() => setShowCreateForm(!showCreateForm)}
+                >
+                    {showCreateForm ? 'Cancel' : 'Create New Market'}
+                </button>
                     <button className="logout-button" onClick={() => {
                         localStorage.removeItem('token');
                         navigate('/');
@@ -267,15 +274,15 @@ const MarketManagement = () => {
             {/* Statistics */}
             {stats && (
                 <div className="stats-overview">
-                    <div className="stat-card">
-                        <h3>Total Markets</h3>
+                        <div className="stat-card">
+                            <h3>Total Markets</h3>
                         <div className="stat-number">{stats.total_markets}</div>
-                    </div>
-                    <div className="stat-card">
+                        </div>
+                        <div className="stat-card">
                         <h3>Active Markets</h3>
                         <div className="stat-number">{stats.active_markets}</div>
-                    </div>
-                    <div className="stat-card">
+                        </div>
+                        <div className="stat-card">
                         <h3>Total Spread Bids</h3>
                         <div className="stat-number">{stats.total_spread_bids}</div>
                     </div>
@@ -568,23 +575,23 @@ const MarketManagement = () => {
                                     Edit
                                 </button>
                                 
-                                {shouldShowAutoActivateButton(market) && (
-                                    <button 
+                                        {shouldShowAutoActivateButton(market) && (
+                                            <button 
                                         className="activate-button action-button"
-                                        onClick={() => handleManualActivate(market.id)}
-                                        disabled={activating[market.id]}
-                                    >
+                                                onClick={() => handleManualActivate(market.id)}
+                                                disabled={activating[market.id]}
+                                            >
                                         {activating[market.id] ? 'Activating...' : 'Activate Market'}
-                                    </button>
-                                )}
+                                            </button>
+                                        )}
                                 
                                 {market.status === 'CREATED' && market.final_spread_low === null && (
-                                    <button 
+                                        <button 
                                         className="set-spread-button action-button"
-                                        onClick={() => handleSetFinalSpread(market.id)}
-                                    >
-                                        Set Final Spread
-                                    </button>
+                                            onClick={() => handleSetFinalSpread(market.id)}
+                                        >
+                                            Set Final Spread
+                                        </button>
                                 )}
                                 
                                 {market.status === 'OPEN' && (

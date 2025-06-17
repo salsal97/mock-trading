@@ -1,5 +1,5 @@
 from rest_framework import status, viewsets, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
@@ -395,3 +395,124 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(position=position.upper())
         
         return queryset.order_by('-trade_time')
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def settle_market(request, market_id):
+    """
+    Manually settle a market (admin only)
+    """
+    try:
+        if not request.user.is_staff:
+            return create_error_response("Admin access required", 403)
+            
+        market = get_object_or_404(Market, id=market_id)
+        
+        outcome = request.data.get('outcome')  # True for YES/LONG wins, False for NO/SHORT wins
+        settlement_price = request.data.get('settlement_price')
+        
+        if outcome is None:
+            return create_error_response("Outcome is required (true for YES, false for NO)")
+            
+        success, message = market.settle_market(outcome, settlement_price)
+        
+        if success:
+            return create_success_response(
+                message,
+                {
+                    'market_id': market.id,
+                    'final_outcome': market.final_outcome,
+                    'settlement_price': float(market.settlement_price),
+                    'settled_at': market.settled_at.isoformat(),
+                    'total_trades_settled': market.trade_set.filter(is_settled=True).count()
+                }
+            )
+        else:
+            return create_error_response(message)
+            
+    except Exception as e:
+        return create_error_response(f"Error settling market: {str(e)}", 500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def trade_history(request):
+    """
+    Get user's trade history with settlement information
+    """
+    try:
+        trades = Trade.objects.filter(user=request.user).select_related('market').order_by('-created_at')
+        
+        trade_data = []
+        for trade in trades:
+            trade_info = {
+                'id': trade.id,
+                'market': {
+                    'id': trade.market.id,
+                    'premise': trade.market.premise,
+                    'status': trade.market.status
+                },
+                'position': trade.position,
+                'price': float(trade.price),
+                'quantity': trade.quantity,
+                'total_cost': float(trade.price * trade.quantity),
+                'created_at': trade.created_at.isoformat(),
+                'is_settled': trade.is_settled
+            }
+            
+            if trade.is_settled:
+                trade_info.update({
+                    'settlement_amount': float(trade.settlement_amount or 0),
+                    'profit_loss': float(trade.profit_loss or 0),
+                    'settled_at': trade.settled_at.isoformat() if trade.settled_at else None,
+                    'market_outcome': trade.market.final_outcome,
+                    'won': (
+                        (trade.position == 'LONG' and trade.market.final_outcome) or
+                        (trade.position == 'SHORT' and not trade.market.final_outcome)
+                    ) if trade.market.final_outcome is not None else None
+                })
+            
+            trade_data.append(trade_info)
+        
+        return create_success_response(
+            "Trade history retrieved successfully",
+            {
+                'trades': trade_data,
+                'total_trades': len(trade_data),
+                'settled_trades': len([t for t in trade_data if t['is_settled']]),
+                'total_profit_loss': sum([float(t.profit_loss or 0) for t in trades if t.is_settled])
+            }
+        )
+        
+    except Exception as e:
+        return create_error_response(f"Error retrieving trade history: {str(e)}", 500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def auto_settle_markets(request):
+    """
+    Check and auto-settle markets that have reached their trading_close time (admin only)
+    """
+    try:
+        if not request.user.is_staff:
+            return create_error_response("Admin access required", 403)
+            
+        markets_to_close = Market.objects.filter(
+            status='OPEN',
+            trading_close__lte=timezone.now()
+        )
+        
+        closed_count = 0
+        for market in markets_to_close:
+            if market.auto_settle_if_time():
+                closed_count += 1
+                
+        return create_success_response(
+            f"Auto-settlement check completed. {closed_count} markets moved to CLOSED status",
+            {
+                'markets_closed': closed_count,
+                'markets_checked': markets_to_close.count()
+            }
+        )
+        
+    except Exception as e:
+        return create_error_response(f"Error in auto-settlement: {str(e)}", 500)

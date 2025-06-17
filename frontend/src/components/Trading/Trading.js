@@ -8,6 +8,7 @@ import './Trading.css';
 
 const Trading = () => {
     const [markets, setMarkets] = useState([]);
+    const [positions, setPositions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tradingMarket, setTradingMarket] = useState(null);
@@ -19,29 +20,34 @@ const Trading = () => {
     const [submitting, setSubmitting] = useState(false);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        fetchTradingData();
-    }, []);
-
     const fetchTradingData = async () => {
         try {
             setLoading(true);
             setError('');
             
-            const marketsData = await apiGet('/api/market/?status=OPEN');
-            setMarkets(marketsData);
+            const [marketsResponse, positionsResponse] = await Promise.all([
+                apiGet('/api/market/'),
+                apiGet('/api/market/positions/')
+            ]);
+            
+            setMarkets(marketsResponse);
+            setPositions(positionsResponse);
         } catch (error) {
             console.error('Error fetching trading data:', error);
-            const errorMessage = handleApiError(error);
-            setError(errorMessage);
-            
             if (shouldRedirectToLogin(error)) {
-                navigate('/login');
+                navigate('/auth');
+                return;
             }
+            handleApiError(error);
+            setError('Failed to load trading data');
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchTradingData();
+    }, [navigate]);
 
     const openTradeModal = (market) => {
         setTradingMarket(market);

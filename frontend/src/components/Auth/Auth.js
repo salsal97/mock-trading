@@ -251,22 +251,28 @@ const Auth = () => {
                     </button>
                 </form>
 
-                <div className="auth-footer">
-                    {isLogin ? (
-                        <p>
-                            Don't have an account?{' '}
-                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(false); }}>
-                                Sign up
-                            </a>
-                        </p>
-                    ) : (
-                        <p>
-                            Already have an account?{' '}
-                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(true); }}>
-                                Login
-                            </a>
-                        </p>
-                    )}
+                <div className="auth-toggle">
+                    <p>
+                        {isLogin ? "Don't have an account? " : "Already have an account? "}
+                        <button 
+                            type="button"
+                            className="toggle-link"
+                            onClick={() => {
+                                setIsLogin(!isLogin);
+                                setError('');
+                                setFormData({
+                                    username: '',
+                                    email: '',
+                                    password: '',
+                                    confirmPassword: '',
+                                    firstName: '',
+                                    lastName: ''
+                                });
+                            }}
+                        >
+                            {isLogin ? 'Sign up' : 'Sign in'}
+                        </button>
+                    </p>
                 </div>
             </div>
         </div>

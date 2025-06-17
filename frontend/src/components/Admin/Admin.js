@@ -1,121 +1,62 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { apiGet, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
 import './Admin.css';
 
 const Admin = () => {
-    const [users, setUsers] = useState([]);
-    const [error, setError] = useState('');
-    const navigate = useNavigate();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate();
 
-    useEffect(() => {
-        verifyAdminStatus();
-        fetchUsers();
-    }, []);
-
+  useEffect(() => {
     const verifyAdminStatus = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/');
-            return;
+      try {
+        setIsLoading(true);
+        const response = await apiGet('/api/auth/verify-admin/');
+        // Admin verification successful
+        setIsAdmin(true);
+      } catch (error) {
+        console.error('Admin verification failed:', error);
+        if (shouldRedirectToLogin(error)) {
+          navigate('/auth');
+          return;
         }
-
-        try {
-            // Since we don't have a specific verify-admin endpoint,
-            // we'll use the get-all-users endpoint to verify admin status
-            const response = await axios.get(`${API_BASE_URL}/api/auth/admin/users/`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            // If we get here, the user is an admin
-        } catch (error) {
-            console.error('Error verifying admin status:', error);
-            setError('Error verifying admin status. Please try again.');
-            if (error.response?.status === 403) {
-                setTimeout(() => {
-                    localStorage.removeItem('token');
-                    navigate('/');
-                }, 2000);
-            }
-        }
+        handleApiError(error);
+        setIsAdmin(false);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    const fetchUsers = async () => {
-        const token = localStorage.getItem('token');
-        try {
-            const response = await axios.get(`${API_BASE_URL}/api/auth/admin/users/`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setUsers(response.data);
-        } catch (error) {
-            console.error('Error fetching users:', error);
-            setError('Error fetching users. Please try again.');
-        }
-    };
+    verifyAdminStatus();
+  }, [navigate]);
 
-    const handleVerification = async (userId, action) => {
-        const token = localStorage.getItem('token');
-        try {
-            await axios.post(`${API_BASE_URL}/api/auth/admin/users/${userId}/verify/`, 
-                { action: action === 'approve' ? 'verify' : 'reject' },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            fetchUsers();
-        } catch (error) {
-            console.error(`Error ${action}ing user:`, error);
-            setError(`Error ${action}ing user. Please try again.`);
-        }
-    };
-
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        navigate('/');
-    };
-
+  if (isLoading) {
     return (
-        <div className="admin-container">
-            <div className="admin-header">
-                <div className="left-section">
-                    <button className="back-button" onClick={() => navigate('/admin')}>
-                        ← Back to Admin Dashboard
-                    </button>
-                    <h1>User Management</h1>
-                </div>
-                <button className="logout-button" onClick={handleLogout}>
-                    Logout
-                </button>
-            </div>
-            {error && <div className="error-message">{error}</div>}
-            <div className="users-list">
-                {users.map(user => (
-                    <div key={user.id} className="user-card">
-                        <div className="user-info">
-                            <h3>{user.username}</h3>
-                            <p>Email: {user.email}</p>
-                            <p>Status: {user.is_verified ? 'Verified' : 'Pending'}</p>
-                            <p>Joined: {new Date(user.date_joined).toLocaleDateString()}</p>
-                        </div>
-                        {!user.is_verified && (
-                            <div className="verification-actions">
-                                <button 
-                                    onClick={() => handleVerification(user.id, 'approve')}
-                                    className="approve-button"
-                                >
-                                    Approve
-                                </button>
-                                <button 
-                                    onClick={() => handleVerification(user.id, 'reject')}
-                                    className="reject-button"
-                                >
-                                    Reject
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                ))}
-            </div>
-        </div>
+      <div className="admin-container">
+        <div className="loading">Verifying admin access...</div>
+      </div>
     );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="admin-container">
+        <div className="error">Access denied. Admin privileges required.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-container">
+      <h1>Admin Dashboard</h1>
+      <div className="admin-nav">
+        <button onClick={() => navigate('/admin/users')}>Manage Users</button>
+        <button onClick={() => navigate('/admin/markets')}>Manage Markets</button>
+        <button onClick={() => navigate('/dashboard')}>Back to Dashboard</button>
+      </div>
+    </div>
+  );
 };
 
 export default Admin; 

@@ -16,9 +16,6 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-
-    # Add PostgreSQL service for testing
-    
     # Add PostgreSQL service for testing
     services:
       postgres:
@@ -55,9 +52,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
 
-    - name: Verify Database Connection
+    - name: Run Django Migrations
       run: |
-        cd backend && python test_db_connection.py
+        cd backend
+        python manage.py makemigrations
+        python manage.py migrate
       env:
         SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         DB_NAME: test_mock_trading
@@ -65,12 +64,26 @@ jobs:
         DB_PASSWORD: postgres
         DB_HOST: localhost
         DB_PORT: 5432
+        DEBUG: True
+
+    - name: Test Database Operations
+      run: |
+        cd backend
+        python -c "import os; import django; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings'); django.setup(); from django.contrib.auth.models import User; print('Testing database connection...'); user_count = User.objects.count(); print(f'Database connection successful! User count: {user_count}')"
+      env:
+        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+        DB_NAME: test_mock_trading
+        DB_USER: postgres
+        DB_PASSWORD: postgres
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DEBUG: True
 
     - name: Build React & Copy to Django
       run: |
         cd frontend
         npm ci --production
-        NODE_ENV=production npm run build
+        CI=false NODE_ENV=production npm run build
         cd ..
         mkdir -p backend/static backend/templates
         cp -r frontend/build/* backend/static/

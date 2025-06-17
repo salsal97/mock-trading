@@ -1,181 +1,122 @@
-/**
- * Market utility functions for status handling and market operations
- */
+// Market-related utility functions and constants
 
 // Market status constants
 export const MARKET_STATUS = {
-    CREATED: 'CREATED',
-    OPEN: 'OPEN',
-    CLOSED: 'CLOSED',
-    SETTLED: 'SETTLED'
+  CREATED: 'CREATED',
+  OPEN: 'OPEN', 
+  CLOSED: 'CLOSED',
+  SETTLED: 'SETTLED'
 };
 
 /**
  * Get color for market status
  * @param {string} status - Market status
- * @returns {string} Color hex code
+ * @returns {string} - Color code
  */
 export const getStatusColor = (status) => {
-    const colors = {
-        [MARKET_STATUS.CREATED]: '#6c757d',
-        [MARKET_STATUS.OPEN]: '#28a745',
-        [MARKET_STATUS.CLOSED]: '#ffc107',
-        [MARKET_STATUS.SETTLED]: '#17a2b8'
-    };
-    return colors[status] || '#6c757d';
+  switch (status?.toLowerCase()) {
+    case 'created':
+    case 'pending':
+      return '#f59e0b'; // amber
+    case 'open':
+    case 'active':
+      return '#10b981'; // emerald
+    case 'closed':
+      return '#ef4444'; // red
+    case 'settled':
+      return '#6b7280'; // gray
+    default:
+      return '#6b7280'; // gray
+  }
 };
 
 /**
- * Get text for market status
+ * Get display text for market status
  * @param {string} status - Market status
- * @returns {string} Human readable status text
+ * @returns {string} - Display text
  */
 export const getStatusText = (status) => {
-    const texts = {
-        [MARKET_STATUS.CREATED]: 'Created',
-        [MARKET_STATUS.OPEN]: 'Open for Trading',
-        [MARKET_STATUS.CLOSED]: 'Trading Closed',
-        [MARKET_STATUS.SETTLED]: 'Settled'
-    };
-    return texts[status] || 'Unknown';
+  switch (status?.toLowerCase()) {
+    case 'created':
+      return 'Created';
+    case 'open':
+    case 'active':
+      return 'Active';
+    case 'closed':
+      return 'Closed';
+    case 'settled':
+      return 'Settled';
+    default:
+      return 'Unknown';
+  }
 };
 
 /**
  * Get CSS class for status badge
  * @param {string} status - Market status
- * @returns {string} CSS class name
+ * @returns {string} - CSS class name
  */
 export const getStatusBadgeClass = (status) => {
-    const classes = {
-        [MARKET_STATUS.CREATED]: 'status-badge status-created',
-        [MARKET_STATUS.OPEN]: 'status-badge status-open',
-        [MARKET_STATUS.CLOSED]: 'status-badge status-closed',
-        [MARKET_STATUS.SETTLED]: 'status-badge status-settled'
-    };
-    return classes[status] || 'status-badge';
+  switch (status?.toLowerCase()) {
+    case 'created':
+    case 'pending':
+      return 'status-badge status-pending';
+    case 'open':
+    case 'active':
+      return 'status-badge status-active';
+    case 'closed':
+      return 'status-badge status-closed';
+    case 'settled':
+      return 'status-badge status-settled';
+    default:
+      return 'status-badge status-unknown';
+  }
 };
 
 /**
- * Get CSS class for trade position
- * @param {string} position - Trade position ('LONG' or 'SHORT')
- * @returns {string} CSS class name
+ * Get CSS class for position display
+ * @param {string} position - Trading position (LONG/SHORT)
+ * @returns {string} - CSS class name
  */
 export const getPositionClass = (position) => {
-    return position === 'LONG' ? 'position-long' : 'position-short';
+  switch (position?.toLowerCase()) {
+    case 'long':
+      return 'position-long';
+    case 'short':
+      return 'position-short';
+    default:
+      return 'position-neutral';
+  }
 };
 
 /**
- * Check if auto-activate button should be shown for a market
- * @param {Object} market - Market object
- * @returns {boolean} Whether to show auto-activate button
+ * Determine if auto-activate button should be shown
+ * @param {object} market - Market object
+ * @returns {boolean} - Whether to show auto-activate button
  */
 export const shouldShowAutoActivateButton = (market) => {
-    if (!market) return false;
-    return market.status === MARKET_STATUS.CREATED && 
-           market.spread_bidding_close && 
-           new Date(market.spread_bidding_close) <= new Date();
+  if (!market) return false;
+  
+  const status = market.status?.toLowerCase();
+  return status === 'created' || status === 'pending';
 };
 
 /**
- * Get trade status text based on market and user's trade
- * @param {Object} market - Market object
- * @returns {string} Trade status text
+ * Get display text for trade status
+ * @param {string} status - Trade status
+ * @returns {string} - Display text
  */
-export const getTradeStatusText = (market) => {
-    if (!market) return 'No trade';
-    
-    if (market.user_trade) {
-        const position = market.user_trade.position === 'LONG' ? 'Long' : 'Short';
-        const price = market.user_trade.price;
-        const quantity = market.user_trade.quantity;
-        return `${position} ${quantity} at ${price}`;
-    }
-    
-    if (market.status === MARKET_STATUS.OPEN) {
-        return 'No position';
-    }
-    
-    return 'Trading closed';
-};
-
-/**
- * Check if market is in a specific phase
- * @param {object} market - Market object
- * @param {string} phase - Phase to check ('bidding', 'trading', 'closed', 'settled')
- * @returns {boolean} True if in specified phase
- */
-export const isMarketInPhase = (market, phase) => {
-    const now = new Date();
-    
-    switch (phase) {
-        case 'bidding':
-            return market.status === MARKET_STATUS.CREATED && market.is_spread_bidding_active;
-        case 'trading':
-            return market.status === MARKET_STATUS.OPEN && market.is_trading_active;
-        case 'closed':
-            return market.status === MARKET_STATUS.CLOSED;
-        case 'settled':
-            return market.status === MARKET_STATUS.SETTLED;
-        default:
-            return false;
-    }
-};
-
-/**
- * Get market phase display text
- * @param {object} market - Market object
- * @returns {string} Current phase description
- */
-export const getMarketPhase = (market) => {
-    if (isMarketInPhase(market, 'bidding')) return 'Spread Bidding Active';
-    if (isMarketInPhase(market, 'trading')) return 'Trading Active';
-    if (isMarketInPhase(market, 'closed')) return 'Trading Closed';
-    if (isMarketInPhase(market, 'settled')) return 'Market Settled';
-    return 'Market Created';
-};
-
-/**
- * Format market premise for display (truncate if too long)
- * @param {string} premise - Market premise
- * @param {number} maxLength - Maximum length (default 50)
- * @returns {string} Formatted premise
- */
-export const formatMarketPremise = (premise, maxLength = 50) => {
-    if (!premise) return '';
-    if (premise.length <= maxLength) return premise;
-    return premise.substring(0, maxLength) + '...';
-};
-
-/**
- * Calculate total trading volume for a market
- * @param {object} market - Market object
- * @returns {number} Total trading volume
- */
-export const getTotalTradingVolume = (market) => {
-    return (market.long_trades_count || 0) + (market.short_trades_count || 0);
-};
-
-/**
- * Get trading sentiment (more longs vs shorts)
- * @param {object} market - Market object
- * @returns {object} Sentiment analysis
- */
-export const getTradingSentiment = (market) => {
-    const longCount = market.long_trades_count || 0;
-    const shortCount = market.short_trades_count || 0;
-    const total = longCount + shortCount;
-    
-    if (total === 0) {
-        return { sentiment: 'neutral', percentage: 0, description: 'No trades yet' };
-    }
-    
-    const longPercentage = (longCount / total) * 100;
-    
-    if (longPercentage > 60) {
-        return { sentiment: 'bullish', percentage: longPercentage, description: 'Mostly long positions' };
-    } else if (longPercentage < 40) {
-        return { sentiment: 'bearish', percentage: 100 - longPercentage, description: 'Mostly short positions' };
-    } else {
-        return { sentiment: 'neutral', percentage: 50, description: 'Balanced trading' };
-    }
+export const getTradeStatusText = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'pending':
+      return 'Pending';
+    case 'filled':
+      return 'Filled';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'expired':
+      return 'Expired';
+    default:
+      return 'Unknown';
+  }
 }; 

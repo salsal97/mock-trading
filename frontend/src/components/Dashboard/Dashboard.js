@@ -7,257 +7,147 @@ import '../../styles/common.css';
 import './Dashboard.css';
 
 const Dashboard = () => {
-    const [userData, setUserData] = useState(null);
     const [markets, setMarkets] = useState([]);
-    const [error, setError] = useState('');
+    const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [bidding, setBidding] = useState({});
-    const [bidForms, setBidForms] = useState({});
+    const [error, setError] = useState('');
+    const [bidAmount, setBidAmount] = useState('');
+    const [selectedMarket, setSelectedMarket] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+                setError('');
+                
+                const [userResponse, marketsResponse] = await Promise.all([
+                    apiGet('/api/auth/user-profile/'),
+                    apiGet('/api/market/')
+                ]);
+                
+                setUserData(userResponse);
+                setMarkets(marketsResponse);
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                if (shouldRedirectToLogin(error)) {
+                    navigate('/auth');
+                    return;
+                }
+                handleApiError(error);
+                setError('Failed to load data');
+            } finally {
+                setLoading(false);
+            }
+        };
+
         fetchData();
     }, [navigate]);
 
-    const fetchData = async () => {
-        try {
-            setLoading(true);
-            setError('');
-            
-            const [userResponse, marketsResponse] = await Promise.all([
-                apiGet('/api/auth/user-profile/'),
-                apiGet('/api/market/')
-            ]);
-            
-            setUserData(userResponse);
-            setMarkets(marketsResponse);
-        } catch (error) {
-            console.error('Error fetching data:', error);
-            const errorMessage = handleApiError(error);
-            setError(errorMessage);
-            
-            if (shouldRedirectToLogin(error)) {
-                localStorage.removeItem('token');
-                navigate('/');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const handleLogout = () => {
         localStorage.removeItem('token');
-        navigate('/');
+        navigate('/auth');
     };
 
-    const handleSpreadBid = async (marketId) => {
-        const bidData = bidForms[marketId];
-        if (!bidData || !bidData.spread_low || !bidData.spread_high) {
-            setError('Please enter both spread low and high values');
+    const handleBid = async (marketId) => {
+        if (!bidAmount) {
+            setError('Please enter a bid amount');
             return;
         }
 
-        setBidding(prev => ({ ...prev, [marketId]: true }));
-        
         try {
-            await apiPost(
-                `/api/market/${marketId}/place_spread_bid/`,
-                {
-                    spread_low: parseInt(bidData.spread_low),
-                    spread_high: parseInt(bidData.spread_high)
-                }
-            );
-
-            // Refresh markets data
-            const marketsResponse = await apiGet('/api/market/');
-            setMarkets(marketsResponse);
-            
-            // Clear the form
-            setBidForms(prev => ({ ...prev, [marketId]: { spread_low: '', spread_high: '' } }));
-            setError('');
+            await apiPost(`/api/market/${marketId}/bid/`, {
+                amount: parseFloat(bidAmount)
+            });
+            setBidAmount('');
+            setSelectedMarket(null);
+            // Refresh data after successful bid
+            const response = await apiGet('/api/market/');
+            setMarkets(response);
         } catch (error) {
-            console.error('Error placing spread bid:', error);
-            const errorMessage = handleApiError(error);
-            setError(`Error placing bid: ${errorMessage}`);
-        } finally {
-            setBidding(prev => ({ ...prev, [marketId]: false }));
+            console.error('Error placing bid:', error);
+            handleApiError(error);
         }
     };
 
-    const updateBidForm = (marketId, field, value) => {
-        setBidForms(prev => ({
-            ...prev,
-            [marketId]: {
-                ...prev[marketId],
-                [field]: value
-            }
-        }));
-    };
-
     if (loading) {
-        return <div className="dashboard-container">Loading...</div>;
-    }
-
-    if (error) {
-        return <div className="dashboard-container error">{error}</div>;
-    }
-
-    if (!userData) {
-        return <div className="dashboard-container">Loading...</div>;
+        return (
+            <div className="dashboard">
+                <div className="loading-spinner">Loading dashboard...</div>
+            </div>
+        );
     }
 
     return (
-        <div className="dashboard-container">
+        <div className="dashboard">
             <div className="dashboard-header">
-                <h1>Welcome, {userData.username}!</h1>
+                <h1>Market Dashboard</h1>
                 <div className="header-actions">
-                    <button 
-                        onClick={() => navigate('/trading')} 
-                        className="trading-button"
-                    >
-                        Trading Dashboard
+                    <button onClick={() => navigate('/trading')} className="btn btn-primary">
+                        Trading
                     </button>
-                    <button onClick={handleLogout} className="logout-button">
+                    <button onClick={handleLogout} className="btn btn-outline">
                         Logout
                     </button>
                 </div>
             </div>
-            <div className="dashboard-content">
-                <div className="dashboard-card">
-                    <h2>Account Overview</h2>
-                    <p>Email: {userData.email}</p>
-                    <p>Account Status: {userData.is_verified ? 'Verified' : 'Pending Verification'}</p>
-                    <p>Member Since: {new Date(userData.date_joined).toLocaleDateString()}</p>
-                    {!userData.is_verified && (
-                        <div className="verification-notice">
-                            <strong>Note:</strong> Your account needs verification to participate in spread bidding.
-                        </div>
-                    )}
+
+            {error && <div className="error-message">{error}</div>}
+
+            {userData && (
+                <div className="user-info">
+                    <h2>Welcome, {userData.username}!</h2>
+                    <p>Balance: ${userData.balance || 0}</p>
                 </div>
-                
-                <div className="dashboard-card markets-card">
-                    <h2>Available Markets ({markets.length})</h2>
-                    {markets.length === 0 ? (
-                        <p className="no-markets">No markets available at the moment.</p>
-                    ) : (
-                        <div className="markets-list">
-                            {markets.map(market => (
-                                <div key={market.id} className="market-item">
-                                    <div className="market-header">
-                                        <h3>{market.premise}</h3>
-                                        <span 
-                                            className="status-badge"
-                                            style={{ backgroundColor: getStatusColor(market.status) }}
-                                        >
-                                            {getStatusText(market.status)}
-                                        </span>
-                                    </div>
-                                    <div className="market-details">
-                                        <div className="market-info">
-                                            <span>Unit Price: ${market.unit_price}</span>
-                                            <span>Current Spread: {market.current_spread_display}</span>
-                                        </div>
-                                        
-                                        {/* Trade Statistics */}
-                                        {(market.long_trades_count > 0 || market.short_trades_count > 0) && (
-                                            <div className="trade-stats">
-                                                <span className="long-trades">Long: {market.long_trades_count}</span>
-                                                <span className="short-trades">Short: {market.short_trades_count}</span>
-                                                <span className="total-trades">Total: {market.total_trades_count}</span>
-                                            </div>
-                                        )}
-                                        
-                                        {/* User's Trade Status */}
-                                        {market.user_trade && (
-                                            <div className={`user-trade-status ${market.user_trade.position.toLowerCase()}`}>
-                                                Your Position: {market.user_trade.position} at ${market.user_trade.price}
-                                                {market.is_trading_active && (
-                                                    <button 
-                                                        className="edit-trade-btn"
-                                                        onClick={() => navigate('/trading')}
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                        
-                                        {/* Best Spread Bid Info */}
-                                        {market.best_spread_bid && (
-                                            <div className="best-bid-info">
-                                                <strong>Leading Bid:</strong> Width of {market.best_spread_bid.spread_width} by {market.best_spread_bid.user} 
-                                                <span className="bid-time">
-                                                    ({formatDateTime(market.best_spread_bid.bid_time)})
-                                                </span>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Timing Information */}
-                                        {market.status === 'CREATED' && (
-                                            <div className="market-timing">
-                                                <span>Spread Bidding: {formatDateTime(market.spread_bidding_open)} - {formatDateTime(market.spread_bidding_close)}</span>
-                                                <span>Trading starts: {formatDateTime(market.trading_open)}</span>
-                                            </div>
-                                        )}
-                                        {market.status === 'OPEN' && (
-                                            <div className="market-timing">
-                                                <span>Trading until: {formatDateTime(market.trading_close)}</span>
-                                            </div>
-                                        )}
-                                        {market.status === 'SETTLED' && market.outcome !== null && (
-                                            <div className="market-outcome">
-                                                <strong>Final Outcome: {market.outcome}</strong>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Spread Bidding Interface */}
-                                        {market.status === 'CREATED' && market.is_spread_bidding_active && userData.is_verified && (
-                                            <div className="spread-bidding-section">
-                                                <h4>Place Spread Bid</h4>
-                                                <p className="bid-requirement">
-                                                    Your spread width must be smaller than the current best of {market.current_best_spread_width}
-                                                </p>
-                                                <div className="bid-form">
-                                                    <div className="bid-inputs">
-                                                        <input
-                                                            type="number"
-                                                            placeholder="Spread Low"
-                                                            value={bidForms[market.id]?.spread_low || ''}
-                                                            onChange={(e) => updateBidForm(market.id, 'spread_low', e.target.value)}
-                                                            disabled={bidding[market.id]}
-                                                        />
-                                                        <input
-                                                            type="number"
-                                                            placeholder="Spread High"
-                                                            value={bidForms[market.id]?.spread_high || ''}
-                                                            onChange={(e) => updateBidForm(market.id, 'spread_high', e.target.value)}
-                                                            disabled={bidding[market.id]}
-                                                        />
-                                                    </div>
-                                                    <button
-                                                        className="bid-button"
-                                                        onClick={() => handleSpreadBid(market.id)}
-                                                        disabled={bidding[market.id]}
-                                                    >
-                                                        {bidding[market.id] ? 'Placing Bid...' : 'Place Bid'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Spread Bidding Closed Message */}
-                                        {market.status === 'CREATED' && !market.is_spread_bidding_active && (
-                                            <div className="bidding-closed">
-                                                Spread bidding is not currently active for this market.
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
+            )}
+
+            <div className="markets-grid">
+                {markets.map(market => (
+                    <div key={market.id} className="market-card">
+                        <h3>{market.premise}</h3>
+                        <div className="market-details">
+                            <p><strong>Status:</strong> 
+                                <span 
+                                    className={`status-badge ${getStatusColor(market.status)}`}
+                                    style={{ backgroundColor: getStatusColor(market.status) }}
+                                >
+                                    {getStatusText(market.status)}
+                                </span>
+                            </p>
+                            <p><strong>Opens:</strong> {formatDateTime(market.trading_open)}</p>
+                            <p><strong>Closes:</strong> {formatDateTime(market.trading_close)}</p>
+                            <p><strong>Current Price:</strong> ${market.current_price || 'N/A'}</p>
                         </div>
-                    )}
-                </div>
+                        
+                        {market.status === 'OPEN' && (
+                            <div className="bid-section">
+                                <input
+                                    type="number"
+                                    placeholder="Bid amount"
+                                    value={selectedMarket === market.id ? bidAmount : ''}
+                                    onChange={(e) => {
+                                        setBidAmount(e.target.value);
+                                        setSelectedMarket(market.id);
+                                    }}
+                                    className="form-input"
+                                />
+                                <button 
+                                    onClick={() => handleBid(market.id)}
+                                    className="btn btn-primary"
+                                >
+                                    Place Bid
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
+
+            {markets.length === 0 && !loading && (
+                <div className="no-markets">
+                    <p>No markets available at the moment.</p>
+                </div>
+            )}
         </div>
     );
 };

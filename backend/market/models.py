@@ -59,6 +59,14 @@ class Market(models.Model):
         help_text="Final outcome of the market (set when settled)"
     )
     
+    # Settlement fields
+    final_outcome = models.BooleanField(null=True, blank=True, help_text="True if market resolves to YES/LONG, False if NO/SHORT")
+    settlement_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Final settlement price")
+    settled_at = models.DateTimeField(null=True, blank=True)
+    market_maker = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='market_maker_markets')
+    market_maker_spread_low = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    market_maker_spread_high = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -260,6 +268,37 @@ class Market(models.Model):
                 'reason': f'Error during activation: {str(e)}',
                 'details': {'error': str(e)}
             }
+    
+    def settle_market(self, outcome, settlement_price=None):
+        """
+        Settle the market and calculate all profit/loss for trades
+        """
+        if self.status == 'SETTLED':
+            return False, "Market already settled"
+            
+        self.final_outcome = outcome
+        self.settlement_price = settlement_price or (self.market_maker_spread_high if outcome else self.market_maker_spread_low)
+        self.status = 'SETTLED'
+        self.settled_at = timezone.now()
+        self.save()
+        
+        # Calculate profit/loss for all trades
+        trades = self.trade_set.all()
+        for trade in trades:
+            trade.calculate_settlement()
+            
+        return True, f"Market settled with outcome: {'YES' if outcome else 'NO'}"
+    
+    def auto_settle_if_time(self):
+        """
+        Check if market should be auto-settled based on trading_close time
+        """
+        if self.status == 'OPEN' and timezone.now() >= self.trading_close:
+            self.status = 'CLOSED'
+            self.save()
+            # Auto-settlement logic could be added here based on business rules
+            return True
+        return False
 
 
 class SpreadBid(models.Model):
@@ -367,6 +406,12 @@ class Trade(models.Model):
         help_text="When this trade was last updated"
     )
     
+    # Settlement fields
+    settlement_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    profit_loss = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    is_settled = models.BooleanField(default=False)
+    settled_at = models.DateTimeField(null=True, blank=True)
+    
     class Meta:
         ordering = ['-trade_time']
         verbose_name = 'Trade'
@@ -424,3 +469,41 @@ class Trade(models.Model):
         """Override save to run validation"""
         self.clean()
         super().save(*args, **kwargs)
+    
+    def calculate_settlement(self):
+        """
+        Calculate profit/loss for this trade based on market outcome
+        """
+        if self.is_settled or not self.market.final_outcome is not None:
+            return
+            
+        market = self.market
+        
+        if self.position == 'LONG':
+            # Long position: profit if market outcome is True (YES)
+            if market.final_outcome:
+                # Market resolved YES - LONG wins
+                self.settlement_amount = self.quantity * market.settlement_price
+                self.profit_loss = self.settlement_amount - (self.quantity * self.price)
+            else:
+                # Market resolved NO - LONG loses
+                self.settlement_amount = 0
+                self.profit_loss = -(self.quantity * self.price)
+        else:  # SHORT position
+            # Short position: profit if market outcome is False (NO)
+            if not market.final_outcome:
+                # Market resolved NO - SHORT wins
+                self.settlement_amount = self.quantity * market.settlement_price
+                self.profit_loss = self.settlement_amount - (self.quantity * self.price)
+            else:
+                # Market resolved YES - SHORT loses
+                self.settlement_amount = 0
+                self.profit_loss = -(self.quantity * self.price)
+                
+        self.is_settled = True
+        self.settled_at = timezone.now()
+        self.save()
+        
+        # Update user balance
+        self.user.profile.balance += self.profit_loss
+        self.user.profile.save()

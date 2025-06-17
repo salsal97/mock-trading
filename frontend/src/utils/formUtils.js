@@ -1,154 +1,45 @@
-/**
- * Form utility functions for validation and form handling
- */
+// Form validation utilities
 
 /**
- * Validate market timing configuration
- * @param {Object} marketData - Market form data
- * @returns {Object} Validation errors object
+ * Validates market timing constraints
+ * @param {string} activationTime - ISO datetime string
+ * @param {string} closingTime - ISO datetime string
+ * @returns {object} - { isValid: boolean, error: string }
  */
-export const validateMarketTiming = (marketData) => {
-    const errors = {};
-    const now = new Date();
+export const validateMarketTiming = (activationTime, closingTime) => {
+  if (!activationTime || !closingTime) {
+    return { isValid: false, error: 'Both activation and closing times are required' };
+  }
 
-    const spreadBiddingOpen = new Date(marketData.spread_bidding_open);
-    const spreadBiddingClose = new Date(marketData.spread_bidding_close);
-    const tradingOpen = new Date(marketData.trading_open);
-    const tradingClose = new Date(marketData.trading_close);
+  const activation = new Date(activationTime);
+  const closing = new Date(closingTime);
+  const now = new Date();
 
-    if (spreadBiddingOpen <= now) {
-        errors.spread_bidding_open = 'Spread bidding open must be in the future';
-    }
+  // Check if activation time is in the future
+  if (activation <= now) {
+    return { isValid: false, error: 'Activation time must be in the future' };
+  }
 
-    if (spreadBiddingClose <= spreadBiddingOpen) {
-        errors.spread_bidding_close = 'Spread bidding close must be after spread bidding open';
-    }
+  // Check if closing time is after activation time
+  if (closing <= activation) {
+    return { isValid: false, error: 'Closing time must be after activation time' };
+  }
 
-    if (tradingOpen <= spreadBiddingClose) {
-        errors.trading_open = 'Trading open must be after spread bidding close';
-    }
+  // Check minimum duration (e.g., at least 1 hour)
+  const minDuration = 60 * 60 * 1000; // 1 hour in milliseconds
+  if (closing.getTime() - activation.getTime() < minDuration) {
+    return { isValid: false, error: 'Market must be active for at least 1 hour' };
+  }
 
-    if (tradingClose <= tradingOpen) {
-        errors.trading_close = 'Trading close must be after trading open';
-    }
-
-    return errors;
+  return { isValid: true, error: '' };
 };
 
 /**
- * Get minimum datetime for form inputs (current time + 1 minute)
- * @returns {string} Minimum datetime string for input
+ * Gets the minimum datetime for input fields (current time + 1 hour)
+ * @returns {string} - ISO datetime string for datetime-local input
  */
 export const getMinDateTime = () => {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + 1);
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    return now.toISOString().slice(0, 16);
-};
-
-/**
- * Reset form to initial state
- * @param {object} initialState - Initial form state
- * @param {function} setFormData - State setter function
- * @param {function} setErrors - Error setter function
- */
-export const resetForm = (initialState, setFormData, setErrors = null) => {
-    setFormData(initialState);
-    if (setErrors) {
-        setErrors({});
-    }
-};
-
-/**
- * Handle form field changes with error clearing
- * @param {Event} event - Change event
- * @param {object} formData - Current form data
- * @param {function} setFormData - Form data setter
- * @param {object} fieldErrors - Current field errors
- * @param {function} setFieldErrors - Field errors setter
- */
-export const handleFieldChange = (event, formData, setFormData, fieldErrors, setFieldErrors) => {
-    const { name, value } = event.target;
-    
-    setFormData({
-        ...formData,
-        [name]: value
-    });
-    
-    // Clear field-specific error when user starts typing
-    if (fieldErrors[name]) {
-        setFieldErrors({
-            ...fieldErrors,
-            [name]: null
-        });
-    }
-};
-
-/**
- * Validate required fields
- * @param {object} formData - Form data to validate
- * @param {array} requiredFields - Array of required field names
- * @returns {object} Validation errors object
- */
-export const validateRequiredFields = (formData, requiredFields) => {
-    const errors = {};
-    
-    requiredFields.forEach(field => {
-        if (!formData[field] || formData[field].toString().trim() === '') {
-            errors[field] = `${field.replace('_', ' ')} is required`;
-        }
-    });
-    
-    return errors;
-};
-
-/**
- * Validate email format
- * @param {string} email - Email to validate
- * @returns {boolean} True if email is valid
- */
-export const validateEmail = (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-};
-
-/**
- * Validate password strength
- * @param {string} password - Password to validate
- * @returns {object} Validation result with isValid and message
- */
-export const validatePassword = (password) => {
-    const minLength = 8;
-    const hasUpperCase = /[A-Z]/.test(password);
-    const hasLowerCase = /[a-z]/.test(password);
-    const hasNumbers = /\d/.test(password);
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-    
-    if (password.length < minLength) {
-        return { isValid: false, message: `Password must be at least ${minLength} characters long` };
-    }
-    
-    if (!hasUpperCase) {
-        return { isValid: false, message: 'Password must contain at least one uppercase letter' };
-    }
-    
-    if (!hasLowerCase) {
-        return { isValid: false, message: 'Password must contain at least one lowercase letter' };
-    }
-    
-    if (!hasNumbers) {
-        return { isValid: false, message: 'Password must contain at least one number' };
-    }
-    
-    return { isValid: true, message: 'Password is strong' };
-};
-
-/**
- * Compare passwords for confirmation
- * @param {string} password - Original password
- * @param {string} confirmPassword - Confirmation password
- * @returns {boolean} True if passwords match
- */
-export const validatePasswordConfirmation = (password, confirmPassword) => {
-    return password === confirmPassword;
+  const now = new Date();
+  now.setHours(now.getHours() + 1);
+  return now.toISOString().slice(0, 16);
 }; 
