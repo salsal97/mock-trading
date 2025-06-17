@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { apiPost, handleApiError } from '../../utils/apiUtils';
+import '../../styles/common.css';
 import './Auth.css';
 
 const Auth = () => {
@@ -84,15 +84,15 @@ const Auth = () => {
 
         try {
             const endpoint = isLogin ? '/api/auth/login/' : '/api/auth/register/';
-            const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData);
+            const response = await apiPost(endpoint, formData);
             
             if (isLogin) {
                 // Store the token in localStorage
-                localStorage.setItem('token', response.data.token.access);
+                localStorage.setItem('token', response.token.access);
                 setSuccess('Login successful! Redirecting...');
                 
                 // Check if user is admin and redirect accordingly
-                if (response.data.is_admin) {
+                if (response.is_admin) {
                     setTimeout(() => navigate('/admin'), 1000);
                 } else {
                     setTimeout(() => navigate('/dashboard'), 1000);
@@ -112,15 +112,13 @@ const Auth = () => {
             }
         } catch (err) {
             console.error('Auth error:', err); // For debugging
+            const errorMessage = handleApiError(err);
             
+            // Try to parse the detailed error response
             if (err.response?.data) {
                 parseErrorResponse(err.response.data);
-            } else if (err.response?.status === 500) {
-                setError('Server error. Please try again later.');
-            } else if (err.code === 'NETWORK_ERROR' || !err.response) {
-                setError('Network error. Please check your connection and try again.');
             } else {
-                setError('An unexpected error occurred. Please try again.');
+                setError(errorMessage);
             }
         } finally {
             setLoading(false);
@@ -244,12 +242,12 @@ const Auth = () => {
                         </div>
                     )}
 
-                    <button
-                        type="submit"
+                    <button 
+                        type="submit" 
                         className="auth-button"
                         disabled={loading}
                     >
-                        {loading ? 'Processing...' : isLogin ? 'Login' : 'Register'}
+                        {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
                     </button>
                 </form>
 
@@ -257,27 +255,15 @@ const Auth = () => {
                     {isLogin ? (
                         <p>
                             Don't have an account?{' '}
-                            <a href="#" onClick={(e) => {
-                                e.preventDefault();
-                                setIsLogin(false);
-                                setError('');
-                                setFieldErrors({});
-                                setSuccess('');
-                            }}>
-                                Register here
+                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(false); }}>
+                                Sign up
                             </a>
                         </p>
                     ) : (
                         <p>
                             Already have an account?{' '}
-                            <a href="#" onClick={(e) => {
-                                e.preventDefault();
-                                setIsLogin(true);
-                                setError('');
-                                setFieldErrors({});
-                                setSuccess('');
-                            }}>
-                                Login here
+                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(true); }}>
+                                Login
                             </a>
                         </p>
                     )}

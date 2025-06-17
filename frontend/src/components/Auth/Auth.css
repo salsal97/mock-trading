@@ -1,3 +1,4 @@
+/* Auth Component Specific Styles */
 .auth-container {
     display: flex;
     justify-content: center;
@@ -33,6 +34,7 @@
     font-size: 1rem;
 }
 
+/* Auth specific form styling */
 .form-group {
     margin-bottom: 1.5rem;
 }

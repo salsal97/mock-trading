@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { formatDateTime } from '../../utils/dateUtils';
+import { getPositionClass, getTradeStatusText } from '../../utils/marketUtils';
+import { apiGet, apiPost, apiDelete, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
+import '../../styles/common.css';
 import './Trading.css';
 
 const Trading = () => {
     const [markets, setMarkets] = useState([]);
-    const [userTrades, setUserTrades] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tradingMarket, setTradingMarket] = useState(null);
@@ -23,31 +24,19 @@ const Trading = () => {
     }, []);
 
     const fetchTradingData = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/login');
-            return;
-        }
-
         try {
-            const [marketsResponse, tradesResponse] = await Promise.all([
-                axios.get(`${API_BASE_URL}/api/market/?status=OPEN`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                axios.get(`${API_BASE_URL}/api/market/trades/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-            ]);
-
-            setMarkets(marketsResponse.data);
-            setUserTrades(tradesResponse.data);
+            setLoading(true);
             setError('');
+            
+            const marketsData = await apiGet('/api/market/?status=OPEN');
+            setMarkets(marketsData);
         } catch (error) {
             console.error('Error fetching trading data:', error);
-            if (error.response?.status === 401) {
+            const errorMessage = handleApiError(error);
+            setError(errorMessage);
+            
+            if (shouldRedirectToLogin(error)) {
                 navigate('/login');
-            } else {
-                setError('Error loading trading data. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -90,31 +79,23 @@ const Trading = () => {
         setSubmitting(true);
         setError('');
 
-        const token = localStorage.getItem('token');
         try {
-            const response = await axios.post(
-                `${API_BASE_URL}/api/market/${tradingMarket.id}/place_trade/`,
+            const response = await apiPost(
+                `/api/market/${tradingMarket.id}/place_trade/`,
                 {
                     position: tradeForm.position,
                     price: parseFloat(tradeForm.price),
                     quantity: parseInt(tradeForm.quantity)
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
+                }
             );
 
-            alert(response.data.message);
+            alert(response.message);
             closeTradeModal();
             await fetchTradingData(); // Refresh data
         } catch (error) {
             console.error('Error placing trade:', error);
-            if (error.response?.data?.errors) {
-                const errorMessage = typeof error.response.data.errors === 'object'
-                    ? Object.values(error.response.data.errors).flat().join('. ')
-                    : error.response.data.errors;
-                setError(`Error placing trade: ${errorMessage}`);
-            } else {
-                setError('Error placing trade. Please try again.');
-            }
+            const errorMessage = handleApiError(error);
+            setError(`Error placing trade: ${errorMessage}`);
         } finally {
             setSubmitting(false);
         }
@@ -125,40 +106,15 @@ const Trading = () => {
             return;
         }
 
-        const token = localStorage.getItem('token');
         try {
-            await axios.delete(
-                `${API_BASE_URL}/api/market/${marketId}/cancel_trade/`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
+            await apiDelete(`/api/market/${marketId}/cancel_trade/`);
             alert('Trade cancelled successfully');
             await fetchTradingData(); // Refresh data
         } catch (error) {
             console.error('Error cancelling trade:', error);
-            alert('Error cancelling trade. Please try again.');
+            const errorMessage = handleApiError(error);
+            alert(`Error cancelling trade: ${errorMessage}`);
         }
-    };
-
-    const formatDateTime = (dateString) => {
-        return new Date(dateString).toLocaleString();
-    };
-
-    const getPositionClass = (position) => {
-        return position === 'LONG' ? 'position-long' : 'position-short';
-    };
-
-    const getTradeStatusText = (market) => {
-        if (!market.is_trading_active) {
-            return 'Trading Closed';
-        }
-        if (market.user_trade) {
-            return `Your Position: ${market.user_trade.position}`;
-        }
-        if (!market.can_user_trade.can_trade) {
-            return market.can_user_trade.reason;
-        }
-        return 'Available for Trading';
     };
 
     if (loading) {

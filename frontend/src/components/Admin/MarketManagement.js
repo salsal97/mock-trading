@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { formatDateTime, formatForDateTimeInput } from '../../utils/dateUtils';
+import { getStatusBadgeClass, shouldShowAutoActivateButton } from '../../utils/marketUtils';
+import { validateMarketTiming, getMinDateTime } from '../../utils/formUtils';
+import { apiGet, apiPost, apiPatch, apiDelete, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
+import '../../styles/common.css';
 import './MarketManagement.css';
 
 const MarketManagement = () => {
@@ -42,87 +45,32 @@ const MarketManagement = () => {
 
     // Real-time validation as user types
     useEffect(() => {
-        validateMarketTiming();
+        const errors = validateMarketTiming(newMarket);
+        setValidationErrors(errors);
     }, [newMarket.spread_bidding_open, newMarket.spread_bidding_close, newMarket.trading_open, newMarket.trading_close]);
 
-    const validateMarketTiming = () => {
-        const errors = {};
-        const { spread_bidding_open, spread_bidding_close, trading_open, trading_close } = newMarket;
-
-        if (spread_bidding_open && spread_bidding_close) {
-            if (new Date(spread_bidding_open) >= new Date(spread_bidding_close)) {
-                errors.spread_bidding_close = 'Spread bidding close must be after spread bidding open';
-            }
-        }
-
-        if (trading_open && trading_close) {
-            if (new Date(trading_open) >= new Date(trading_close)) {
-                errors.trading_close = 'Trading close must be after trading open';
-            }
-        }
-
-        if (spread_bidding_close && trading_open) {
-            if (new Date(spread_bidding_close) > new Date(trading_open)) {
-                errors.trading_open = 'Trading open must be after spread bidding close';
-            }
-        }
-
-        setValidationErrors(errors);
-    };
-
-    const getCurrentDateTime = () => {
-        const now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-        return now.toISOString().slice(0, 16);
-    };
-
-    const getMinDateTime = (fieldName) => {
-        const now = getCurrentDateTime();
-        
-        switch (fieldName) {
-            case 'spread_bidding_open':
-                return now;
-            case 'spread_bidding_close':
-                return newMarket.spread_bidding_open || now;
-            case 'trading_open':
-                return newMarket.spread_bidding_close || now;
-            case 'trading_close':
-                return newMarket.trading_open || now;
-            default:
-                return now;
-        }
-    };
-
     const verifyAdminAndFetchData = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/login');
-            return;
-        }
-
         try {
+            setLoading(true);
+            setError('');
+            
             // Verify admin status and fetch data
             const [marketsResponse, statsResponse] = await Promise.all([
-                axios.get(`${API_BASE_URL}/api/market/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                axios.get(`${API_BASE_URL}/api/market/stats/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                apiGet('/api/market/'),
+                apiGet('/api/market/stats/').catch(() => ({ data: null })) // Stats endpoint might not exist
             ]);
 
-            setMarkets(marketsResponse.data);
+            setMarkets(marketsResponse);
             setStats(statsResponse.data);
-            setError('');
         } catch (error) {
             console.error('Error fetching data:', error);
+            const errorMessage = handleApiError(error);
+            setError(errorMessage);
+            
             if (error.response?.status === 403) {
-                setError('Access denied. Admin privileges required.');
                 setTimeout(() => navigate('/dashboard'), 2000);
-            } else if (error.response?.status === 401) {
+            } else if (shouldRedirectToLogin(error)) {
                 navigate('/login');
-            } else {
-                setError('Error loading market data. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -138,11 +86,8 @@ const MarketManagement = () => {
             return;
         }
 
-        const token = localStorage.getItem('token');
         try {
-            await axios.post(`${API_BASE_URL}/api/market/`, newMarket, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await apiPost('/api/market/', newMarket);
 
             // Reset form and refresh data
             setNewMarket({
@@ -159,14 +104,8 @@ const MarketManagement = () => {
             await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error creating market:', error);
-            if (error.response?.data) {
-                const errorMessage = typeof error.response.data === 'object' 
-                    ? Object.values(error.response.data).flat().join('. ')
-                    : error.response.data;
-                setError(`Error creating market: ${errorMessage}`);
-            } else {
-                setError('Error creating market. Please try again.');
-            }
+            const errorMessage = handleApiError(error);
+            setError(`Error creating market: ${errorMessage}`);
         }
     };
 
@@ -175,13 +114,8 @@ const MarketManagement = () => {
         
         if (!editingMarket) return;
 
-        const token = localStorage.getItem('token');
         try {
-            const response = await axios.patch(
-                `${API_BASE_URL}/api/market/${editingMarket.id}/edit/`, 
-                editMarket,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await apiPatch(`/api/market/${editingMarket.id}/edit/`, editMarket);
 
             // Reset form and refresh data
             setEditingMarket(null);
@@ -192,37 +126,22 @@ const MarketManagement = () => {
             alert('Market updated successfully!');
         } catch (error) {
             console.error('Error updating market:', error);
-            if (error.response?.data?.errors) {
-                const errorMessage = typeof error.response.data.errors === 'object' 
-                    ? Object.values(error.response.data.errors).flat().join('. ')
-                    : error.response.data.errors;
-                setError(`Error updating market: ${errorMessage}`);
-            } else {
-                setError('Error updating market. Please try again.');
-            }
+            const errorMessage = handleApiError(error);
+            setError(`Error updating market: ${errorMessage}`);
         }
     };
 
     const startEditMarket = (market) => {
         setEditingMarket(market);
         
-        // Convert datetime strings to local datetime-local format
-        const formatForInput = (dateString) => {
-            if (!dateString) return '';
-            const date = new Date(dateString);
-            // Convert to local timezone for editing
-            const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-            return localDate.toISOString().slice(0, 16);
-        };
-
         setEditMarket({
             premise: market.premise,
             unit_price: market.unit_price,
             initial_spread: market.initial_spread,
-            spread_bidding_open: formatForInput(market.spread_bidding_open),
-            spread_bidding_close: formatForInput(market.spread_bidding_close),
-            trading_open: formatForInput(market.trading_open),
-            trading_close: formatForInput(market.trading_close),
+            spread_bidding_open: formatForDateTimeInput(market.spread_bidding_open),
+            spread_bidding_close: formatForDateTimeInput(market.spread_bidding_close),
+            trading_open: formatForDateTimeInput(market.trading_open),
+            trading_close: formatForDateTimeInput(market.trading_close),
             status: market.status,
             outcome: market.outcome || ''
         });
@@ -245,32 +164,24 @@ const MarketManagement = () => {
     };
 
     const handleUpdateMarketStatus = async (marketId, newStatus) => {
-        const token = localStorage.getItem('token');
         try {
-            await axios.patch(`${API_BASE_URL}/api/market/${marketId}/`, 
-                { status: newStatus },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await apiPatch(`/api/market/${marketId}/`, { status: newStatus });
             await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error updating market status:', error);
-            setError('Error updating market status. Please try again.');
+            const errorMessage = handleApiError(error);
+            setError(`Error updating market status: ${errorMessage}`);
         }
     };
 
     const handleManualActivate = async (marketId) => {
-        const token = localStorage.getItem('token');
         setActivating(prev => ({ ...prev, [marketId]: true }));
         
         try {
-            const response = await axios.post(
-                `${API_BASE_URL}/api/market/${marketId}/manual_activate/`,
-                {},
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const response = await apiPost(`/api/market/${marketId}/manual_activate/`, {});
             
             // Show success message with details
-            const details = response.data.details;
+            const details = response.details;
             let message = 'Market activated successfully!';
             
             if (details.winning_bid) {
@@ -283,12 +194,8 @@ const MarketManagement = () => {
             await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error activating market:', error);
-            if (error.response?.data) {
-                const errorMessage = error.response.data.error || 'Unknown error';
-                setError(`Error activating market: ${errorMessage}`);
-            } else {
-                setError('Error activating market. Please try again.');
-            }
+            const errorMessage = handleApiError(error);
+            setError(`Error activating market: ${errorMessage}`);
         } finally {
             setActivating(prev => ({ ...prev, [marketId]: false }));
         }
@@ -299,61 +206,31 @@ const MarketManagement = () => {
         const spreadHigh = prompt('Enter final spread high:');
         
         if (spreadLow && spreadHigh) {
-            const token = localStorage.getItem('token');
             try {
-                await axios.patch(`${API_BASE_URL}/api/market/${marketId}/`, 
-                    { 
-                        final_spread_low: parseInt(spreadLow),
-                        final_spread_high: parseInt(spreadHigh)
-                    },
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
+                await apiPatch(`/api/market/${marketId}/`, { 
+                    final_spread_low: parseInt(spreadLow),
+                    final_spread_high: parseInt(spreadHigh)
+                });
                 await verifyAdminAndFetchData();
             } catch (error) {
                 console.error('Error setting final spread:', error);
-                setError('Error setting final spread. Please try again.');
+                const errorMessage = handleApiError(error);
+                setError(`Error setting final spread: ${errorMessage}`);
             }
         }
     };
 
     const handleDeleteMarket = async (marketId) => {
         if (window.confirm('Are you sure you want to delete this market?')) {
-            const token = localStorage.getItem('token');
             try {
-                            await axios.delete(`${API_BASE_URL}/api/market/${marketId}/`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+                await apiDelete(`/api/market/${marketId}/`);
                 await verifyAdminAndFetchData();
             } catch (error) {
                 console.error('Error deleting market:', error);
-                setError('Error deleting market. Please try again.');
+                const errorMessage = handleApiError(error);
+                setError(`Error deleting market: ${errorMessage}`);
             }
         }
-    };
-
-    const formatDateTime = (dateString) => {
-        return new Date(dateString).toLocaleString();
-    };
-
-    const getStatusBadgeClass = (status) => {
-        switch (status) {
-            case 'CREATED': return 'status-created';
-            case 'OPEN': return 'status-open';
-            case 'CLOSED': return 'status-closed';
-            case 'SETTLED': return 'status-settled';
-            default: return 'status-default';
-        }
-    };
-
-    const shouldShowAutoActivateButton = (market) => {
-        const now = new Date();
-        const biddingClose = new Date(market.spread_bidding_close);
-        return (
-            market.status === 'CREATED' && 
-            now > biddingClose && 
-            market.final_spread_low === null && 
-            market.final_spread_high === null
-        );
     };
 
     if (loading) {
@@ -361,50 +238,51 @@ const MarketManagement = () => {
     }
 
     return (
-        <div className="market-management">
-            <div className="management-header">
-                <h1>Market Management</h1>
-                <button 
-                    className="create-button"
-                    onClick={() => setShowCreateForm(!showCreateForm)}
-                >
-                    {showCreateForm ? 'Cancel' : 'Create New Market'}
-                </button>
+        <div className="market-management-container">
+            <div className="market-header">
+                <div className="header-left">
+                    <button className="back-button" onClick={() => navigate('/admin')}>
+                        ← Back to Admin
+                    </button>
+                    <h1>Market Management</h1>
+                </div>
+                <div className="header-right">
+                    <button 
+                        className="create-button"
+                        onClick={() => setShowCreateForm(!showCreateForm)}
+                    >
+                        {showCreateForm ? 'Cancel' : 'Create New Market'}
+                    </button>
+                    <button className="logout-button" onClick={() => {
+                        localStorage.removeItem('token');
+                        navigate('/');
+                    }}>
+                        Logout
+                    </button>
+                </div>
             </div>
 
             {error && <div className="error-message">{error}</div>}
 
-            {/* Market Statistics */}
+            {/* Statistics */}
             {stats && (
-                <div className="stats-section">
-                    <h2>Market Statistics</h2>
-                    <div className="stats-grid">
-                        <div className="stat-card">
-                            <h3>Total Markets</h3>
-                            <p className="stat-number">{stats.total_markets}</p>
-                        </div>
-                        <div className="stat-card">
-                            <h3>Active Trading</h3>
-                            <p className="stat-number">{stats.active_trading}</p>
-                        </div>
-                        <div className="stat-card">
-                            <h3>By Status</h3>
-                            <div className="status-breakdown">
-                                {Object.entries(stats.markets_by_status).map(([status, count]) => (
-                                    <div key={status} className="status-item">
-                                        <span className={`status-badge ${getStatusBadgeClass(status)}`}>
-                                            {status}
-                                        </span>
-                                        <span className="status-count">{count}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                <div className="stats-overview">
+                    <div className="stat-card">
+                        <h3>Total Markets</h3>
+                        <div className="stat-number">{stats.total_markets}</div>
+                    </div>
+                    <div className="stat-card">
+                        <h3>Active Markets</h3>
+                        <div className="stat-number">{stats.active_markets}</div>
+                    </div>
+                    <div className="stat-card">
+                        <h3>Total Spread Bids</h3>
+                        <div className="stat-number">{stats.total_spread_bids}</div>
                     </div>
                 </div>
             )}
 
-            {/* Create Market Form */}
+            {/* Create Form */}
             {showCreateForm && (
                 <div className="create-form-section">
                     <h2>Create New Market</h2>
@@ -422,13 +300,14 @@ const MarketManagement = () => {
 
                         <div className="form-row">
                             <div className="form-group">
-                                <label>Unit Price:</label>
+                                <label>Unit Price ($):</label>
                                 <input
                                     type="number"
                                     step="0.01"
                                     value={newMarket.unit_price}
                                     onChange={(e) => setNewMarket({...newMarket, unit_price: parseFloat(e.target.value)})}
                                     required
+                                    min="0.01"
                                 />
                             </div>
                             <div className="form-group">
@@ -437,8 +316,8 @@ const MarketManagement = () => {
                                     type="number"
                                     value={newMarket.initial_spread}
                                     onChange={(e) => setNewMarket({...newMarket, initial_spread: e.target.value})}
-                                    placeholder="e.g., 10"
                                     required
+                                    min="1"
                                 />
                             </div>
                         </div>
@@ -449,7 +328,7 @@ const MarketManagement = () => {
                                 <input
                                     type="datetime-local"
                                     value={newMarket.spread_bidding_open}
-                                    min={getMinDateTime('spread_bidding_open')}
+                                    min={getMinDateTime('spread_bidding_open', newMarket)}
                                     onChange={(e) => setNewMarket({...newMarket, spread_bidding_open: e.target.value})}
                                     required
                                 />
@@ -459,7 +338,7 @@ const MarketManagement = () => {
                                 <input
                                     type="datetime-local"
                                     value={newMarket.spread_bidding_close}
-                                    min={getMinDateTime('spread_bidding_close')}
+                                    min={getMinDateTime('spread_bidding_close', newMarket)}
                                     onChange={(e) => setNewMarket({...newMarket, spread_bidding_close: e.target.value})}
                                     required
                                     className={validationErrors.spread_bidding_close ? 'error' : ''}
@@ -476,7 +355,7 @@ const MarketManagement = () => {
                                 <input
                                     type="datetime-local"
                                     value={newMarket.trading_open}
-                                    min={getMinDateTime('trading_open')}
+                                    min={getMinDateTime('trading_open', newMarket)}
                                     onChange={(e) => setNewMarket({...newMarket, trading_open: e.target.value})}
                                     required
                                     className={validationErrors.trading_open ? 'error' : ''}
@@ -490,7 +369,7 @@ const MarketManagement = () => {
                                 <input
                                     type="datetime-local"
                                     value={newMarket.trading_close}
-                                    min={getMinDateTime('trading_close')}
+                                    min={getMinDateTime('trading_close', newMarket)}
                                     onChange={(e) => setNewMarket({...newMarket, trading_close: e.target.value})}
                                     required
                                     className={validationErrors.trading_close ? 'error' : ''}
@@ -502,26 +381,14 @@ const MarketManagement = () => {
                         </div>
 
                         <div className="form-actions">
-                            <button 
-                                type="submit" 
-                                className="submit-button"
-                                disabled={Object.keys(validationErrors).length > 0}
-                            >
-                                Create Market
-                            </button>
-                            <button 
-                                type="button" 
-                                className="cancel-button"
-                                onClick={() => setShowCreateForm(false)}
-                            >
-                                Cancel
-                            </button>
+                            <button type="submit" className="submit-button">Create Market</button>
+                            <button type="button" className="cancel-button" onClick={() => setShowCreateForm(false)}>Cancel</button>
                         </div>
                     </form>
                 </div>
             )}
 
-            {/* Edit Market Form */}
+            {/* Edit Form */}
             {showEditForm && editingMarket && (
                 <div className="create-form-section">
                     <h2>Edit Market: {editingMarket.premise.substring(0, 50)}...</h2>
@@ -545,13 +412,14 @@ const MarketManagement = () => {
 
                         <div className="form-row">
                             <div className="form-group">
-                                <label>Unit Price:</label>
+                                <label>Unit Price ($):</label>
                                 <input
                                     type="number"
                                     step="0.01"
                                     value={editMarket.unit_price}
                                     onChange={(e) => setEditMarket({...editMarket, unit_price: parseFloat(e.target.value)})}
                                     required
+                                    min="0.01"
                                 />
                             </div>
                             <div className="form-group">
@@ -560,8 +428,8 @@ const MarketManagement = () => {
                                     type="number"
                                     value={editMarket.initial_spread}
                                     onChange={(e) => setEditMarket({...editMarket, initial_spread: e.target.value})}
-                                    placeholder="e.g., 10"
                                     required
+                                    min="1"
                                 />
                             </div>
                         </div>
@@ -608,6 +476,7 @@ const MarketManagement = () => {
                             </div>
                         </div>
 
+                        {/* Status and Outcome for existing markets */}
                         <div className="form-row">
                             <div className="form-group">
                                 <label>Status:</label>
@@ -622,7 +491,7 @@ const MarketManagement = () => {
                                 </select>
                             </div>
                             <div className="form-group">
-                                <label>Outcome (for settled markets):</label>
+                                <label>Outcome (if settled):</label>
                                 <input
                                     type="number"
                                     value={editMarket.outcome}
@@ -633,19 +502,8 @@ const MarketManagement = () => {
                         </div>
 
                         <div className="form-actions">
-                            <button 
-                                type="submit" 
-                                className="submit-button"
-                            >
-                                Update Market
-                            </button>
-                            <button 
-                                type="button" 
-                                className="cancel-button"
-                                onClick={cancelEdit}
-                            >
-                                Cancel
-                            </button>
+                            <button type="submit" className="submit-button">Update Market</button>
+                            <button type="button" className="cancel-button" onClick={cancelEdit}>Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -703,63 +561,56 @@ const MarketManagement = () => {
                             </div>
                             
                             <div className="market-actions">
-                                {/* Edit button - available for all markets */}
                                 <button 
+                                    className="edit-button action-button"
                                     onClick={() => startEditMarket(market)}
-                                    className="action-button edit-button"
                                 >
-                                    Edit Market
+                                    Edit
                                 </button>
                                 
-                                {market.status === 'CREATED' && (
-                                    <>
-                                        {shouldShowAutoActivateButton(market) && (
-                                            <button 
-                                                onClick={() => handleManualActivate(market.id)}
-                                                className="action-button activate-button"
-                                                disabled={activating[market.id]}
-                                            >
-                                                {activating[market.id] ? 'Activating...' : 'Auto-Activate Market'}
-                                            </button>
-                                        )}
-                                        <button 
-                                            onClick={() => handleSetFinalSpread(market.id)}
-                                            className="action-button spread-button"
-                                        >
-                                            Set Final Spread
-                                        </button>
-                                        <button 
-                                            onClick={() => handleUpdateMarketStatus(market.id, 'OPEN')}
-                                            className="action-button open-button"
-                                        >
-                                            Open Market
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDeleteMarket(market.id)}
-                                            className="action-button delete-button"
-                                        >
-                                            Delete
-                                        </button>
-                                    </>
+                                {shouldShowAutoActivateButton(market) && (
+                                    <button 
+                                        className="activate-button action-button"
+                                        onClick={() => handleManualActivate(market.id)}
+                                        disabled={activating[market.id]}
+                                    >
+                                        {activating[market.id] ? 'Activating...' : 'Activate Market'}
+                                    </button>
+                                )}
+                                
+                                {market.status === 'CREATED' && market.final_spread_low === null && (
+                                    <button 
+                                        className="set-spread-button action-button"
+                                        onClick={() => handleSetFinalSpread(market.id)}
+                                    >
+                                        Set Final Spread
+                                    </button>
                                 )}
                                 
                                 {market.status === 'OPEN' && (
                                     <button 
+                                        className="close-button action-button"
                                         onClick={() => handleUpdateMarketStatus(market.id, 'CLOSED')}
-                                        className="action-button close-button"
                                     >
-                                        Close Market
+                                        Close Trading
                                     </button>
                                 )}
                                 
                                 {market.status === 'CLOSED' && (
                                     <button 
+                                        className="settle-button action-button"
                                         onClick={() => handleUpdateMarketStatus(market.id, 'SETTLED')}
-                                        className="action-button settle-button"
                                     >
-                                        Settle Market
+                                        Settle
                                     </button>
                                 )}
+                                
+                                <button 
+                                    className="delete-button action-button"
+                                    onClick={() => handleDeleteMarket(market.id)}
+                                >
+                                    Delete
+                                </button>
                             </div>
                         </div>
                     ))}

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { formatDateTime } from '../../utils/dateUtils';
+import { getStatusColor, getStatusText } from '../../utils/marketUtils';
+import { apiGet, apiPost, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
+import '../../styles/common.css';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -14,40 +16,34 @@ const Dashboard = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/');
-            return;
-        }
-
-        // Fetch user data and markets
-        const fetchData = async () => {
-                    try {
-            const [userResponse, marketsResponse] = await Promise.all([
-                axios.get(`${API_BASE_URL}/api/auth/user-profile/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                axios.get(`${API_BASE_URL}/api/market/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-            ]);
-                
-                setUserData(userResponse.data);
-                setMarkets(marketsResponse.data);
-                setLoading(false);
-            } catch (error) {
-                console.error('Error fetching data:', error);
-                setError('Error loading data. Please try again.');
-                setLoading(false);
-                if (error.response?.status === 401) {
-                    localStorage.removeItem('token');
-                    navigate('/');
-                }
-            }
-        };
-
         fetchData();
     }, [navigate]);
+
+    const fetchData = async () => {
+        try {
+            setLoading(true);
+            setError('');
+            
+            const [userResponse, marketsResponse] = await Promise.all([
+                apiGet('/api/auth/user-profile/'),
+                apiGet('/api/market/')
+            ]);
+            
+            setUserData(userResponse);
+            setMarkets(marketsResponse);
+        } catch (error) {
+            console.error('Error fetching data:', error);
+            const errorMessage = handleApiError(error);
+            setError(errorMessage);
+            
+            if (shouldRedirectToLogin(error)) {
+                localStorage.removeItem('token');
+                navigate('/');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -63,36 +59,26 @@ const Dashboard = () => {
 
         setBidding(prev => ({ ...prev, [marketId]: true }));
         
-        const token = localStorage.getItem('token');
         try {
-            await axios.post(
-                `${API_BASE_URL}/api/market/${marketId}/place_spread_bid/`,
+            await apiPost(
+                `/api/market/${marketId}/place_spread_bid/`,
                 {
                     spread_low: parseInt(bidData.spread_low),
                     spread_high: parseInt(bidData.spread_high)
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
+                }
             );
 
             // Refresh markets data
-            const marketsResponse = await axios.get(`${API_BASE_URL}/api/market/`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setMarkets(marketsResponse.data);
+            const marketsResponse = await apiGet('/api/market/');
+            setMarkets(marketsResponse);
             
             // Clear the form
             setBidForms(prev => ({ ...prev, [marketId]: { spread_low: '', spread_high: '' } }));
             setError('');
         } catch (error) {
             console.error('Error placing spread bid:', error);
-            if (error.response?.data) {
-                const errorMessage = typeof error.response.data === 'object' 
-                    ? Object.values(error.response.data).flat().join('. ')
-                    : error.response.data;
-                setError(`Error placing bid: ${errorMessage}`);
-            } else {
-                setError('Error placing spread bid. Please try again.');
-            }
+            const errorMessage = handleApiError(error);
+            setError(`Error placing bid: ${errorMessage}`);
         } finally {
             setBidding(prev => ({ ...prev, [marketId]: false }));
         }
@@ -106,30 +92,6 @@ const Dashboard = () => {
                 [field]: value
             }
         }));
-    };
-
-    const formatDateTime = (dateString) => {
-        return new Date(dateString).toLocaleString();
-    };
-
-    const getStatusColor = (status) => {
-        const colors = {
-            'CREATED': '#6c757d',
-            'OPEN': '#28a745',
-            'CLOSED': '#ffc107',
-            'SETTLED': '#17a2b8'
-        };
-        return colors[status] || '#6c757d';
-    };
-
-    const getStatusText = (status) => {
-        const statusTexts = {
-            'CREATED': 'Spread Bidding',
-            'OPEN': 'Active Trading',
-            'CLOSED': 'Trading Closed',
-            'SETTLED': 'Settled'
-        };
-        return statusTexts[status] || status;
     };
 
     if (loading) {

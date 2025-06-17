@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import API_BASE_URL from '../../config/api';
+import { apiGet, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
+import '../../styles/common.css';
 import './AdminLanding.css';
 
 const AdminLanding = () => {
@@ -22,28 +22,15 @@ const AdminLanding = () => {
     }, []);
 
     const fetchAdminData = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/');
-            return;
-        }
-
         try {
-            const [usersResponse, marketsResponse] = await Promise.all([
-                axios.get(`${API_BASE_URL}/api/auth/admin/users/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                axios.get(`${API_BASE_URL}/api/market/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+            const [usersData, marketsData] = await Promise.all([
+                apiGet('/api/auth/admin/users/'),
+                apiGet('/api/market/')
             ]);
 
-            const users = usersResponse.data;
-            const marketsData = marketsResponse.data;
-
             setStats({
-                totalUsers: users.length,
-                verifiedUsers: users.filter(u => u.is_verified).length,
+                totalUsers: usersData.length,
+                verifiedUsers: usersData.filter(u => u.is_verified).length,
                 totalMarkets: marketsData.length,
                 activeMarkets: marketsData.filter(m => m.status === 'OPEN').length,
                 totalTrades: marketsData.reduce((sum, m) => sum + (m.total_trades_count || 0), 0)
@@ -52,9 +39,10 @@ const AdminLanding = () => {
             setMarkets(marketsData);
             setError('');
         } catch (error) {
-            console.error('Error fetching admin data:', error);
-            setError('Error loading admin data. Please try again.');
-            if (error.response?.status === 401 || error.response?.status === 403) {
+            const errorMessage = handleApiError(error);
+            setError(`Error loading admin data: ${errorMessage}`);
+            
+            if (shouldRedirectToLogin(error)) {
                 navigate('/');
             }
         } finally {
