@@ -59,7 +59,7 @@ jobs:
       run: |
         cd backend && python test_db_connection.py
       env:
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         DB_NAME: test_mock_trading
         DB_USER: postgres
         DB_PASSWORD: postgres
@@ -81,7 +81,7 @@ jobs:
         cd backend
         python manage.py collectstatic --noinput
       env:
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
         DB_NAME: test_mock_trading
         DB_USER: postgres
         DB_PASSWORD: postgres
