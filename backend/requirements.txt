@@ -2,6 +2,10 @@ django==5.0.1
 django-cors-headers==4.3.1
 python-dotenv==1.0.0
 djangorestframework==3.14.0
-djangorestframework-simplejwt==5.3.1
+djangorestframework-simplejwt==5.3.0
+PyJWT==2.8.0
+python-decouple==3.8
 gunicorn==21.2.0
-whitenoise==6.6.0 
+whitenoise==6.9.0
+requests==2.32.4
+psycopg2-binary==2.9.9 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import API_BASE_URL from '../../config/api';
 import './Auth.css';
 
 const Auth = () => {
@@ -83,7 +84,7 @@ const Auth = () => {
 
         try {
             const endpoint = isLogin ? '/api/auth/login/' : '/api/auth/register/';
-            const response = await axios.post(`http://localhost:8000${endpoint}`, formData);
+            const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData);
             
             if (isLogin) {
                 // Store the token in localStorage

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import API_BASE_URL from '../../config/api';
 import './MarketManagement.css';
 
 const MarketManagement = () => {
@@ -89,10 +90,10 @@ const MarketManagement = () => {
         try {
             // Verify admin status and fetch data
             const [marketsResponse, statsResponse] = await Promise.all([
-                axios.get('http://localhost:8000/api/market/', {
+                axios.get(`${API_BASE_URL}/api/market/`, {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                axios.get('http://localhost:8000/api/market/stats/', {
+                axios.get(`${API_BASE_URL}/api/market/stats/`, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
             ]);
@@ -126,7 +127,7 @@ const MarketManagement = () => {
 
         const token = localStorage.getItem('token');
         try {
-            await axios.post('http://localhost:8000/api/market/', newMarket, {
+            await axios.post(`${API_BASE_URL}/api/market/`, newMarket, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -159,7 +160,7 @@ const MarketManagement = () => {
     const handleUpdateMarketStatus = async (marketId, newStatus) => {
         const token = localStorage.getItem('token');
         try {
-            await axios.patch(`http://localhost:8000/api/market/${marketId}/`, 
+            await axios.patch(`${API_BASE_URL}/api/market/${marketId}/`, 
                 { status: newStatus },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -176,7 +177,7 @@ const MarketManagement = () => {
         
         try {
             const response = await axios.post(
-                `http://localhost:8000/api/market/${marketId}/manual_activate/`,
+                `${API_BASE_URL}/api/market/${marketId}/manual_activate/`,
                 {},
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -213,7 +214,7 @@ const MarketManagement = () => {
         if (spreadLow && spreadHigh) {
             const token = localStorage.getItem('token');
             try {
-                await axios.patch(`http://localhost:8000/api/market/${marketId}/`, 
+                await axios.patch(`${API_BASE_URL}/api/market/${marketId}/`, 
                     { 
                         final_spread_low: parseInt(spreadLow),
                         final_spread_high: parseInt(spreadHigh)
@@ -232,9 +233,9 @@ const MarketManagement = () => {
         if (window.confirm('Are you sure you want to delete this market?')) {
             const token = localStorage.getItem('token');
             try {
-                await axios.delete(`http://localhost:8000/api/market/${marketId}/`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+                            await axios.delete(`${API_BASE_URL}/api/market/${marketId}/`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
                 await verifyAdminAndFetchData();
             } catch (error) {
                 console.error('Error deleting market:', error);

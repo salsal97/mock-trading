@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import API_BASE_URL from '../../config/api';
 import './Admin.css';
 
 const Admin = () => {
@@ -23,7 +24,7 @@ const Admin = () => {
         try {
             // Since we don't have a specific verify-admin endpoint,
             // we'll use the get-all-users endpoint to verify admin status
-            const response = await axios.get('http://localhost:8000/api/auth/admin/users/', {
+            const response = await axios.get(`${API_BASE_URL}/api/auth/admin/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             // If we get here, the user is an admin
@@ -42,7 +43,7 @@ const Admin = () => {
     const fetchUsers = async () => {
         const token = localStorage.getItem('token');
         try {
-            const response = await axios.get('http://localhost:8000/api/auth/admin/users/', {
+            const response = await axios.get(`${API_BASE_URL}/api/auth/admin/users/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUsers(response.data);
@@ -55,7 +56,7 @@ const Admin = () => {
     const handleVerification = async (userId, action) => {
         const token = localStorage.getItem('token');
         try {
-            await axios.post(`http://localhost:8000/api/auth/admin/users/${userId}/verify/`, 
+            await axios.post(`${API_BASE_URL}/api/auth/admin/users/${userId}/verify/`, 
                 { action: action === 'approve' ? 'verify' : 'reject' },
                 { headers: { Authorization: `Bearer ${token}` } }
             );

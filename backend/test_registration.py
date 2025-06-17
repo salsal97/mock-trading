@@ -14,7 +14,9 @@ django.setup()
 
 def test_registration():
     """Test the registration endpoint"""
-    url = 'http://localhost:8000/api/auth/register/'
+    # Use environment variable or default to localhost for testing
+    base_url = os.environ.get('API_BASE_URL', 'http://localhost:8000')
+    url = f'{base_url}/api/auth/register/'
     
     # Test data
     test_data = {
@@ -37,13 +39,17 @@ def test_registration():
             print("❌ Registration failed")
             
     except requests.exceptions.ConnectionError:
-        print("❌ Could not connect to server. Make sure Django is running on localhost:8000")
+        print(f"❌ Could not connect to server at {base_url}")
+        print("For local testing: python manage.py runserver")
+        print("For Azure testing: set API_BASE_URL=https://salonis-mock-trading-app.azurewebsites.net")
     except Exception as e:
         print(f"❌ Error: {e}")
 
 def test_duplicate_registration():
     """Test registration with duplicate username"""
-    url = 'http://localhost:8000/api/auth/register/'
+    # Use environment variable or default to localhost for testing
+    base_url = os.environ.get('API_BASE_URL', 'http://localhost:8000')
+    url = f'{base_url}/api/auth/register/'
     
     # Test data with duplicate username
     test_data = {
@@ -67,7 +73,9 @@ def test_duplicate_registration():
             print("❌ Duplicate username test failed")
             
     except requests.exceptions.ConnectionError:
-        print("❌ Could not connect to server. Make sure Django is running on localhost:8000")
+        print(f"❌ Could not connect to server at {base_url}")
+        print("For local testing: python manage.py runserver")
+        print("For Azure testing: set API_BASE_URL=https://salonis-mock-trading-app.azurewebsites.net")
     except Exception as e:
         print(f"❌ Error: {e}")
 

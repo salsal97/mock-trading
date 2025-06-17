@@ -87,6 +87,18 @@ class MarketViewSet(viewsets.ModelViewSet):
         """Set the created_by field to the current user when creating a market"""
         serializer.save(created_by=self.request.user)
     
+    def create(self, request, *args, **kwargs):
+        """Override create to return full market data after creation"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # Return full market data using MarketSerializer
+        market = serializer.instance
+        response_serializer = MarketSerializer(market)
+        headers = self.get_success_headers(serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    
     def destroy(self, request, *args, **kwargs):
         """Override destroy to add business logic"""
         market = self.get_object()
@@ -193,7 +205,8 @@ class MarketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminUser])
     def manual_activate(self, request, pk=None):
         """Manually activate a market (admin only)"""
-        market = self.get_object()
+        # Get market directly without triggering auto-activation
+        market = get_object_or_404(Market, pk=pk)
         
         result = market.auto_activate_market()
         

@@ -44,11 +44,10 @@ jobs:
           cd backend
           python manage.py collectstatic --noinput
 
-      - name: 🧪 Run Tests (optional)
+      - name: 🧪 Run Tests (required)
         run: |
           cd backend
           python manage.py test --verbosity=2
-        continue-on-error: true
 
       - name: 🚀 Deploy to Azure Web App
         uses: azure/webapps-deploy@v2

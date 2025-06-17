@@ -135,7 +135,7 @@ For production environments, you can schedule the management command:
 ### Using Windows Task Scheduler
 Create a task that runs:
 ```cmd
-C:\path\to\venv\Scripts\python.exe C:\path\to\manage.py auto_activate_markets
+python manage.py auto_activate_markets
 ```
 
 ### Using Celery (Recommended for Django)

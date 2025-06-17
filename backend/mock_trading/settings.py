@@ -21,12 +21,32 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-pdc6@^a9q#)^leq-_oow)pe0)lq(2+f-g)^zratx=t$r47g+$6')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is required")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if os.environ.get('ALLOWED_HOSTS') else []
+# ALLOWED_HOSTS configuration
+if os.environ.get('WEBSITE_SITE_NAME'):  # Azure App Service environment variable
+    # Running on Azure - allow Azure domains and internal networks
+    ALLOWED_HOSTS = [
+        os.environ.get('WEBSITE_SITE_NAME', 'salonis-mock-trading-app') + '.azurewebsites.net',
+        '*.azurewebsites.net',
+        'localhost',
+        '127.0.0.1',
+        '169.254.130.2',  # Azure internal health check
+        '169.254.130.1',  # Azure internal health check
+        '10.0.0.4',       # Azure internal network
+    ]
+    # Add any custom domains from environment
+    custom_hosts = os.environ.get('ALLOWED_HOSTS', '')
+    if custom_hosts:
+        ALLOWED_HOSTS.extend(custom_hosts.split(','))
+else:
+    # Local development
+    ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -82,10 +102,23 @@ WSGI_APPLICATION = 'mock_trading.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME'),
+        'USER': os.environ.get('DB_USER'),
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': os.environ.get('DB_HOST'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
     }
 }
+
+# Validate required database environment variables
+required_db_vars = ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST']
+missing_vars = [var for var in required_db_vars if not os.environ.get(var)]
+if missing_vars:
+    raise ValueError(f"Required database environment variables are missing: {', '.join(missing_vars)}")
 
 
 # Password validation

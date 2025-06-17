@@ -27,12 +27,13 @@ urlpatterns = [
     path('api/market/', include('market.urls')),
 ]
 
-# Serve React app for all other routes (SPA routing) - only in production
-if not settings.DEBUG:
-    urlpatterns += [
-        re_path(r'^.*$', never_cache(TemplateView.as_view(template_name='index.html'))),
-    ]
+# Serve static files
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
-# Serve static files in development
-if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+# Serve React app for root and all other routes (SPA routing)
+urlpatterns += [
+    # Root path specifically
+    path('', never_cache(TemplateView.as_view(template_name='index.html')), name='home'),
+    # Catch-all for React SPA routing (must be last)
+    re_path(r'^.*/$', never_cache(TemplateView.as_view(template_name='index.html'))),
+]

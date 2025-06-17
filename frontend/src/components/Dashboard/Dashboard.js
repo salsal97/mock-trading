@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import API_BASE_URL from '../../config/api';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -21,15 +22,15 @@ const Dashboard = () => {
 
         // Fetch user data and markets
         const fetchData = async () => {
-            try {
-                const [userResponse, marketsResponse] = await Promise.all([
-                    axios.get('http://localhost:8000/api/auth/user-profile/', {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    axios.get('http://localhost:8000/api/market/', {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
-                ]);
+                    try {
+            const [userResponse, marketsResponse] = await Promise.all([
+                axios.get(`${API_BASE_URL}/api/auth/user-profile/`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                axios.get(`${API_BASE_URL}/api/market/`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ]);
                 
                 setUserData(userResponse.data);
                 setMarkets(marketsResponse.data);
@@ -65,7 +66,7 @@ const Dashboard = () => {
         const token = localStorage.getItem('token');
         try {
             await axios.post(
-                `http://localhost:8000/api/market/${marketId}/place_spread_bid/`,
+                `${API_BASE_URL}/api/market/${marketId}/place_spread_bid/`,
                 {
                     spread_low: parseInt(bidData.spread_low),
                     spread_high: parseInt(bidData.spread_high)
@@ -74,7 +75,7 @@ const Dashboard = () => {
             );
 
             // Refresh markets data
-            const marketsResponse = await axios.get('http://localhost:8000/api/market/', {
+            const marketsResponse = await axios.get(`${API_BASE_URL}/api/market/`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setMarkets(marketsResponse.data);

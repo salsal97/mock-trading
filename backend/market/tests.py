@@ -371,18 +371,19 @@ class SpreadBidAPITest(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         data = {
-            'spread_low': 45,
-            'spread_high': 55
+            'spread_low': 48,
+            'spread_high': 52
         }
         
         response = self.client.post(
             f'/api/market/{self.market.id}/place_spread_bid/',
-            data
+            data,
+            format='json'
         )
         
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['spread_low'], 45)
-        self.assertEqual(response.data['spread_high'], 55)
+        self.assertEqual(response.data['spread_low'], 48)
+        self.assertEqual(response.data['spread_high'], 52)
         self.assertEqual(response.data['user_username'], 'testuser')
 
     def test_place_spread_bid_unverified_user(self):
@@ -398,13 +399,14 @@ class SpreadBidAPITest(APITestCase):
         self.client.force_authenticate(user=unverified_user)
         
         data = {
-            'spread_low': 45,
-            'spread_high': 55
+            'spread_low': 48,
+            'spread_high': 52
         }
         
         response = self.client.post(
             f'/api/market/{self.market.id}/place_spread_bid/',
-            data
+            data,
+            format='json'
         )
         
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -433,8 +435,8 @@ class SpreadBidAPITest(APITestCase):
         SpreadBid.objects.create(
             market=self.market,
             user=self.user,
-            spread_low=45,
-            spread_high=55
+            spread_low=48,
+            spread_high=52
         )
         
         self.client.force_authenticate(user=self.user)
@@ -447,7 +449,7 @@ class SpreadBidAPITest(APITestCase):
 
     def test_market_serializer_includes_best_bid(self):
         """Test that market serializer includes best bid information"""
-        # Create a bid
+        # Create a bid with width 10
         SpreadBid.objects.create(
             market=self.market,
             user=self.user,
@@ -481,17 +483,18 @@ class SpreadBidAPITest(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         data = {
-            'spread_low': 45,
-            'spread_high': 50
+            'spread_low': 48,
+            'spread_high': 52
         }
         
         response = self.client.post(
             f'/api/market/{past_market.id}/place_spread_bid/',
-            data
+            data,
+            format='json'
         )
         
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('not currently active', str(response.data))
+        self.assertIn('CREATED state', str(response.data))
 
 
 class MarketAutoActivationAPITest(APITestCase):
@@ -530,8 +533,8 @@ class MarketAutoActivationAPITest(APITestCase):
         SpreadBid.objects.create(
             market=self.market,
             user=self.user,
-            spread_low=45,
-            spread_high=55
+            spread_low=48,
+            spread_high=52
         )
         
         self.client.force_authenticate(user=self.user)
@@ -544,8 +547,8 @@ class MarketAutoActivationAPITest(APITestCase):
         # Check that market was auto-activated
         self.market.refresh_from_db()
         self.assertEqual(self.market.status, 'OPEN')
-        self.assertEqual(self.market.final_spread_low, 45)
-        self.assertEqual(self.market.final_spread_high, 55)
+        self.assertEqual(self.market.final_spread_low, 48)
+        self.assertEqual(self.market.final_spread_high, 52)
 
     def test_lazy_activation_on_market_retrieve(self):
         """Test that market is auto-activated when retrieving specific market"""
@@ -573,9 +576,22 @@ class MarketAutoActivationAPITest(APITestCase):
 
     def test_manual_activation_endpoint(self):
         """Test the manual activation endpoint for admins"""
+        # Create a fresh market for this test to avoid auto-activation from other tests
+        now = timezone.now()
+        fresh_market = Market.objects.create(
+            premise="Manual activation test market",
+            unit_price=1.0,
+            initial_spread=20,
+            created_by=self.admin_user,
+            spread_bidding_open=now - timedelta(hours=2),
+            spread_bidding_close=now - timedelta(hours=1),  # Closed
+            trading_open=now + timedelta(hours=1),
+            trading_close=now + timedelta(hours=3)
+        )
+        
         # Create a bid
         SpreadBid.objects.create(
-            market=self.market,
+            market=fresh_market,
             user=self.user,
             spread_low=42,
             spread_high=58
@@ -584,16 +600,16 @@ class MarketAutoActivationAPITest(APITestCase):
         self.client.force_authenticate(user=self.admin_user)
         
         # Manually activate the market
-        response = self.client.post(f'/api/market/{self.market.id}/manual_activate/')
+        response = self.client.post(f'/api/market/{fresh_market.id}/manual_activate/')
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Market activated successfully')
         
         # Check market state
-        self.market.refresh_from_db()
-        self.assertEqual(self.market.status, 'OPEN')
-        self.assertEqual(self.market.final_spread_low, 42)
-        self.assertEqual(self.market.final_spread_high, 58)
+        fresh_market.refresh_from_db()
+        self.assertEqual(fresh_market.status, 'OPEN')
+        self.assertEqual(fresh_market.final_spread_low, 42)
+        self.assertEqual(fresh_market.final_spread_high, 58)
 
     def test_manual_activation_non_admin(self):
         """Test that non-admin users cannot manually activate markets"""
