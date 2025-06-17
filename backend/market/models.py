@@ -139,6 +139,44 @@ class Market(models.Model):
         # Sort by spread width (tightest first), then by bid time (earliest first)
         return min(user_bids, key=lambda bid: (bid.spread_width, bid.bid_time))
     
+    @property
+    def long_trades_count(self):
+        """Get count of long positions on this market"""
+        return self.trades.filter(position='LONG').count()
+    
+    @property
+    def short_trades_count(self):
+        """Get count of short positions on this market"""
+        return self.trades.filter(position='SHORT').count()
+    
+    @property
+    def total_trades_count(self):
+        """Get total number of trades on this market"""
+        return self.trades.count()
+    
+    def get_user_trade(self, user):
+        """Get a user's trade on this market (if any)"""
+        try:
+            return self.trades.get(user=user)
+        except:
+            return None
+    
+    def can_user_trade(self, user):
+        """Check if a user can place a trade on this market"""
+        # Market must be open for trading
+        if not self.is_trading_active:
+            return False, "Market is not open for trading"
+        
+        # User must be verified (if profile exists)
+        if hasattr(user, 'profile') and not user.profile.is_verified:
+            return False, "Only verified users can trade"
+        
+        # User cannot be the market maker
+        if self.created_by == user:
+            return False, "Market makers cannot trade on their own markets"
+        
+        return True, "User can trade"
+    
     def auto_activate_market(self):
         """
         Automatically activate the market by selecting the winning spread bid.
@@ -281,6 +319,106 @@ class SpreadBid(models.Model):
         
         if self.spread_width <= 0:
             raise ValidationError("Spread width must be positive")
+    
+    def save(self, *args, **kwargs):
+        """Override save to run validation"""
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+class Trade(models.Model):
+    """Model for tracking user trading positions on markets"""
+    
+    POSITION_CHOICES = [
+        ('LONG', 'Long'),
+        ('SHORT', 'Short'),
+    ]
+    
+    market = models.ForeignKey(
+        Market,
+        on_delete=models.CASCADE,
+        related_name='trades',
+        help_text="The market this trade is for"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='trades',
+        help_text="User placing the trade"
+    )
+    position = models.CharField(
+        max_length=5,
+        choices=POSITION_CHOICES,
+        help_text="Whether user is going long or short"
+    )
+    price = models.FloatField(
+        help_text="Price at which the trade was executed"
+    )
+    quantity = models.IntegerField(
+        default=1,
+        help_text="Number of units traded"
+    )
+    trade_time = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this trade was placed"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When this trade was last updated"
+    )
+    
+    class Meta:
+        ordering = ['-trade_time']
+        verbose_name = 'Trade'
+        verbose_name_plural = 'Trades'
+        # Ensure one position per user per market
+        unique_together = ['market', 'user']
+        indexes = [
+            models.Index(fields=['market', 'position']),
+            models.Index(fields=['user', 'trade_time']),
+            models.Index(fields=['market', 'trade_time']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.position} on {self.market.premise[:30]}..."
+    
+    @property
+    def is_long(self):
+        """Check if this is a long position"""
+        return self.position == 'LONG'
+    
+    @property
+    def is_short(self):
+        """Check if this is a short position"""
+        return self.position == 'SHORT'
+    
+    @property
+    def total_value(self):
+        """Calculate total value of the trade"""
+        return self.price * self.quantity
+    
+    def clean(self):
+        """Validate the trade"""
+        from django.core.exceptions import ValidationError
+        
+        # Check if market is open for trading
+        if not self.market.is_trading_active:
+            raise ValidationError("Market is not open for trading")
+        
+        # Check if user is verified (if profile exists)
+        if hasattr(self.user, 'profile') and not self.user.profile.is_verified:
+            raise ValidationError("Only verified users can place trades")
+        
+        # Validate price is within market spread
+        if self.market.final_spread_low is not None and self.market.final_spread_high is not None:
+            if self.position == 'LONG' and self.price < self.market.final_spread_high:
+                raise ValidationError(f"Long position price must be at least {self.market.final_spread_high}")
+            elif self.position == 'SHORT' and self.price > self.market.final_spread_low:
+                raise ValidationError(f"Short position price must be at most {self.market.final_spread_low}")
+        
+        # Validate quantity
+        if self.quantity <= 0:
+            raise ValidationError("Quantity must be positive")
     
     def save(self, *args, **kwargs):
         """Override save to run validation"""

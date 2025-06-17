@@ -6,6 +6,7 @@ from . import views
 router = DefaultRouter()
 router.register(r'', views.MarketViewSet, basename='market')
 router.register(r'spread-bids', views.SpreadBidViewSet, basename='spreadbid')
+router.register(r'trades', views.TradeViewSet, basename='trade')
 
 urlpatterns = [
     path('', include(router.urls)),

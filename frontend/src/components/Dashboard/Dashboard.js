@@ -148,9 +148,17 @@ const Dashboard = () => {
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <h1>Welcome, {userData.username}!</h1>
-                <button onClick={handleLogout} className="logout-button">
-                    Logout
-                </button>
+                <div className="header-actions">
+                    <button 
+                        onClick={() => navigate('/trading')} 
+                        className="trading-button"
+                    >
+                        Trading Dashboard
+                    </button>
+                    <button onClick={handleLogout} className="logout-button">
+                        Logout
+                    </button>
+                </div>
             </div>
             <div className="dashboard-content">
                 <div className="dashboard-card">
@@ -187,6 +195,30 @@ const Dashboard = () => {
                                             <span>Unit Price: ${market.unit_price}</span>
                                             <span>Current Spread: {market.current_spread_display}</span>
                                         </div>
+                                        
+                                        {/* Trade Statistics */}
+                                        {(market.long_trades_count > 0 || market.short_trades_count > 0) && (
+                                            <div className="trade-stats">
+                                                <span className="long-trades">Long: {market.long_trades_count}</span>
+                                                <span className="short-trades">Short: {market.short_trades_count}</span>
+                                                <span className="total-trades">Total: {market.total_trades_count}</span>
+                                            </div>
+                                        )}
+                                        
+                                        {/* User's Trade Status */}
+                                        {market.user_trade && (
+                                            <div className={`user-trade-status ${market.user_trade.position.toLowerCase()}`}>
+                                                Your Position: {market.user_trade.position} at ${market.user_trade.price}
+                                                {market.is_trading_active && (
+                                                    <button 
+                                                        className="edit-trade-btn"
+                                                        onClick={() => navigate('/trading')}
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                         
                                         {/* Best Spread Bid Info */}
                                         {market.best_spread_bid && (

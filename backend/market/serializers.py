@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.utils import timezone
-from .models import Market, SpreadBid
+from .models import Market, SpreadBid, Trade
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,13 @@ class MarketSerializer(serializers.ModelSerializer):
     # Add timezone debugging fields
     server_time = serializers.SerializerMethodField()
     timezone_info = serializers.SerializerMethodField()
+    
+    # Add trade statistics
+    long_trades_count = serializers.ReadOnlyField()
+    short_trades_count = serializers.ReadOnlyField()
+    total_trades_count = serializers.ReadOnlyField()
+    user_trade = serializers.SerializerMethodField()
+    can_user_trade = serializers.SerializerMethodField()
     
     class Meta:
         model = Market
@@ -45,7 +52,12 @@ class MarketSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'server_time',
-            'timezone_info'
+            'timezone_info',
+            'long_trades_count',
+            'short_trades_count',
+            'total_trades_count',
+            'user_trade',
+            'can_user_trade'
         ]
         read_only_fields = ['created_at', 'updated_at', 'final_spread_low', 'final_spread_high']
     
@@ -71,6 +83,37 @@ class MarketSerializer(serializers.ModelSerializer):
             'server_timezone': str(timezone.get_current_timezone()),
             'utc_offset': timezone.now().strftime('%z'),
             'is_dst': timezone.now().dst() is not None
+        }
+    
+    def get_user_trade(self, obj):
+        """Get the current user's trade on this market (if any)"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            trade = obj.get_user_trade(request.user)
+            if trade:
+                return {
+                    'id': trade.id,
+                    'position': trade.position,
+                    'price': trade.price,
+                    'quantity': trade.quantity,
+                    'total_value': trade.total_value,
+                    'trade_time': trade.trade_time,
+                    'updated_at': trade.updated_at
+                }
+        return None
+    
+    def get_can_user_trade(self, obj):
+        """Check if the current user can trade on this market"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            can_trade, reason = obj.can_user_trade(request.user)
+            return {
+                'can_trade': can_trade,
+                'reason': reason
+            }
+        return {
+            'can_trade': False,
+            'reason': 'User not authenticated'
         }
 
 class MarketCreateSerializer(serializers.ModelSerializer):
@@ -353,4 +396,125 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Create spread bid with current user"""
         validated_data['user'] = self.context['request'].user
-        return super().create(validated_data) 
+        return super().create(validated_data)
+
+
+class TradeSerializer(serializers.ModelSerializer):
+    """Serializer for displaying trades"""
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    market_premise = serializers.CharField(source='market.premise', read_only=True)
+    is_long = serializers.ReadOnlyField()
+    is_short = serializers.ReadOnlyField()
+    total_value = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = Trade
+        fields = [
+            'id',
+            'market',
+            'market_premise',
+            'user',
+            'user_username',
+            'position',
+            'price',
+            'quantity',
+            'total_value',
+            'is_long',
+            'is_short',
+            'trade_time',
+            'updated_at'
+        ]
+        read_only_fields = ['trade_time', 'updated_at', 'user']
+
+
+class TradeCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new trades"""
+    
+    class Meta:
+        model = Trade
+        fields = ['market', 'position', 'price', 'quantity']
+    
+    def validate(self, data):
+        """Validate trade creation rules"""
+        market = data['market']
+        user = self.context['request'].user
+        position = data['position']
+        price = data['price']
+        quantity = data.get('quantity', 1)
+        
+        # Check if user can trade on this market
+        can_trade, reason = market.can_user_trade(user)
+        if not can_trade:
+            raise serializers.ValidationError(reason)
+        
+        # Check if market is open for trading
+        if not market.is_trading_active:
+            raise serializers.ValidationError("Market is not open for trading")
+        
+        # Validate price is within market spread
+        if market.final_spread_low is not None and market.final_spread_high is not None:
+            if position == 'LONG' and price < market.final_spread_high:
+                raise serializers.ValidationError(
+                    f"Long position price must be at least {market.final_spread_high}"
+                )
+            elif position == 'SHORT' and price > market.final_spread_low:
+                raise serializers.ValidationError(
+                    f"Short position price must be at most {market.final_spread_low}"
+                )
+        
+        # Validate quantity
+        if quantity <= 0:
+            raise serializers.ValidationError("Quantity must be positive")
+        
+        # Validate price
+        if price <= 0:
+            raise serializers.ValidationError("Price must be positive")
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create a new trade"""
+        validated_data['user'] = self.context['request'].user
+        return Trade.objects.create(**validated_data)
+
+
+class TradeUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating existing trades"""
+    
+    class Meta:
+        model = Trade
+        fields = ['position', 'price', 'quantity']
+    
+    def validate(self, data):
+        """Validate trade update rules"""
+        instance = self.instance
+        market = instance.market
+        
+        # Check if market is still open for trading
+        if not market.is_trading_active:
+            raise serializers.ValidationError("Cannot update trade - market is closed")
+        
+        # Get new values or keep existing ones
+        position = data.get('position', instance.position)
+        price = data.get('price', instance.price)
+        quantity = data.get('quantity', instance.quantity)
+        
+        # Validate price is within market spread
+        if market.final_spread_low is not None and market.final_spread_high is not None:
+            if position == 'LONG' and price < market.final_spread_high:
+                raise serializers.ValidationError(
+                    f"Long position price must be at least {market.final_spread_high}"
+                )
+            elif position == 'SHORT' and price > market.final_spread_low:
+                raise serializers.ValidationError(
+                    f"Short position price must be at most {market.final_spread_low}"
+                )
+        
+        # Validate quantity and price
+        if quantity <= 0:
+            raise serializers.ValidationError("Quantity must be positive")
+        
+        if price <= 0:
+            raise serializers.ValidationError("Price must be positive")
+        
+        return data 

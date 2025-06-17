@@ -5,10 +5,11 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.utils import timezone
-from .models import Market, SpreadBid
+from .models import Market, SpreadBid, Trade
 from .serializers import (
     MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer, MarketEditSerializer,
-    SpreadBidSerializer, SpreadBidCreateSerializer
+    SpreadBidSerializer, SpreadBidCreateSerializer,
+    TradeSerializer, TradeCreateSerializer, TradeUpdateSerializer
 )
 from .permissions import IsAdminOrReadOnly
 import logging
@@ -257,6 +258,89 @@ class MarketViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def place_trade(self, request, pk=None):
+        """Place a trade on a market"""
+        market = self.get_object()
+        
+        # Check if user already has a trade on this market
+        existing_trade = market.get_user_trade(request.user)
+        
+        if existing_trade:
+            # Update existing trade
+            serializer = TradeUpdateSerializer(
+                existing_trade,
+                data=request.data,
+                context={'request': request}
+            )
+        else:
+            # Create new trade
+            serializer = TradeCreateSerializer(
+                data={**request.data, 'market': market.id},
+                context={'request': request}
+            )
+        
+        if serializer.is_valid():
+            trade = serializer.save()
+            
+            # Return the trade data
+            response_serializer = TradeSerializer(trade)
+            return Response({
+                'message': 'Trade placed successfully' if not existing_trade else 'Trade updated successfully',
+                'trade': response_serializer.data
+            })
+        else:
+            return Response(
+                {'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def trades(self, request, pk=None):
+        """Get all trades for a market"""
+        market = self.get_object()
+        
+        # Filter by position if specified
+        position_filter = request.query_params.get('position')
+        trades = market.trades.all()
+        
+        if position_filter and position_filter.upper() in ['LONG', 'SHORT']:
+            trades = trades.filter(position=position_filter.upper())
+        
+        serializer = TradeSerializer(trades, many=True)
+        return Response({
+            'trades': serializer.data,
+            'long_count': market.long_trades_count,
+            'short_count': market.short_trades_count,
+            'total_count': market.total_trades_count
+        })
+
+    @action(detail=True, methods=['delete'], permission_classes=[IsAuthenticated])
+    def cancel_trade(self, request, pk=None):
+        """Cancel user's trade on a market (only if trading is still open)"""
+        market = self.get_object()
+        
+        # Check if market is still open for trading
+        if not market.is_trading_active:
+            return Response(
+                {'error': 'Cannot cancel trade - market is closed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get user's trade
+        trade = market.get_user_trade(request.user)
+        if not trade:
+            return Response(
+                {'error': 'No trade found for this user on this market'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Delete the trade
+        trade.delete()
+        
+        return Response({
+            'message': 'Trade cancelled successfully'
+        })
 
 class SpreadBidViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -276,9 +360,38 @@ class SpreadBidViewSet(viewsets.ReadOnlyModelViewSet):
         if market_id:
             queryset = queryset.filter(market_id=market_id)
         
-        # Filter by user if provided
-        user_id = self.request.query_params.get('user')
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
+        # Filter by user if provided (for user's own bids)
+        user_only = self.request.query_params.get('user_only')
+        if user_only and user_only.lower() == 'true':
+            queryset = queryset.filter(user=self.request.user)
         
-        return queryset.order_by('bid_time')
+        return queryset.order_by('-bid_time')
+
+class TradeViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing trades.
+    Trade creation/updates are handled through MarketViewSet.
+    """
+    queryset = Trade.objects.all()
+    serializer_class = TradeSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter trades based on query parameters and user permissions"""
+        queryset = Trade.objects.all()
+        
+        # Regular users can only see their own trades
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(user=self.request.user)
+        
+        # Filter by market if provided
+        market_id = self.request.query_params.get('market')
+        if market_id:
+            queryset = queryset.filter(market_id=market_id)
+        
+        # Filter by position if provided
+        position = self.request.query_params.get('position')
+        if position and position.upper() in ['LONG', 'SHORT']:
+            queryset = queryset.filter(position=position.upper())
+        
+        return queryset.order_by('-trade_time')

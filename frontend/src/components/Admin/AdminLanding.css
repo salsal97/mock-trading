@@ -1,36 +1,240 @@
 .admin-landing-container {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 2rem;
+    padding: 20px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .admin-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #ddd;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #e0e0e0;
 }
 
 .admin-header h1 {
-    color: #333;
+    color: #2c3e50;
     margin: 0;
+    font-size: 2.5rem;
+    font-weight: 600;
 }
 
 .logout-button {
-    background-color: #dc3545;
+    background: #dc3545;
     color: white;
     border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 4px;
+    padding: 10px 20px;
+    border-radius: 6px;
     cursor: pointer;
+    font-size: 14px;
     font-weight: 500;
-    transition: background-color 0.3s ease;
+    transition: all 0.3s ease;
 }
 
 .logout-button:hover {
-    background-color: #c82333;
+    background: #c82333;
+    transform: translateY(-1px);
+}
+
+.error-message {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border: 1px solid #f5c6cb;
+}
+
+/* Statistics Overview */
+.stats-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.stat-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.stat-card h3 {
+    color: #6c757d;
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-number {
+    color: #2c3e50;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.stat-detail {
+    color: #6c757d;
+    font-size: 12px;
+}
+
+/* Market Trade Statistics */
+.market-trades-section {
+    margin-bottom: 40px;
+}
+
+.market-trades-section h2 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    font-size: 1.8rem;
+    font-weight: 600;
+}
+
+.markets-trade-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+}
+
+.market-trade-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.market-trade-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.market-trade-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+}
+
+.market-trade-header h3 {
+    color: #2c3e50;
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    flex: 1;
+    margin-right: 10px;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: white;
+}
+
+.status-badge.created {
+    background: #6c757d;
+}
+
+.status-badge.open {
+    background: #28a745;
+}
+
+.status-badge.closed {
+    background: #ffc107;
+    color: #212529;
+}
+
+.status-badge.settled {
+    background: #17a2b8;
+}
+
+.trade-statistics {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.trade-stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.trade-label {
+    color: #6c757d;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.trade-count-btn {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    min-width: 40px;
+    transition: all 0.3s ease;
+}
+
+.trade-count-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.trade-count-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.trade-count-btn.long {
+    color: #28a745;
+    border-color: #28a745;
+}
+
+.trade-count-btn.long:hover:not(:disabled) {
+    background: #28a745;
+    color: white;
+}
+
+.trade-count-btn.short {
+    color: #dc3545;
+    border-color: #dc3545;
+}
+
+.trade-count-btn.short:hover:not(:disabled) {
+    background: #dc3545;
+    color: white;
+}
+
+.trade-count-btn.total {
+    color: #007bff;
+    border-color: #007bff;
+}
+
+.trade-count-btn.total:hover:not(:disabled) {
+    background: #007bff;
+    color: white;
 }
 
 .admin-options {
