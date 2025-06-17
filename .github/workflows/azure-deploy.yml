@@ -39,6 +39,7 @@ jobs:
       DB_PORT: 5432
       DEBUG: False
       GITHUB_ACTIONS: true
+      NODE_ENV: production
 
     steps:
       - name: 📥 Checkout Code

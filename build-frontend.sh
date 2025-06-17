@@ -7,8 +7,9 @@ echo "📦 Installing frontend dependencies..."
 cd frontend
 npm ci --production
 
-echo "⚛️ Building React app..."
-npm run build
+echo "⚛️ Building React app for production..."
+# Set NODE_ENV=production explicitly for the build
+NODE_ENV=production npm run build
 
 # Go back to root
 cd ..
