@@ -1,24 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { formatDateTime } from '../../utils/dateUtils';
-import { getPositionClass, getTradeStatusText } from '../../utils/marketUtils';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { formatDateTime, formatCurrency } from '../../utils/dateUtils';
+import { getPositionClass, getTradeStatusText, getStatusBadgeClass, getStatusText, getProfitLossClass } from '../../utils/marketUtils';
 import { apiGet, apiPost, apiDelete, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
 import '../../styles/common.css';
 import './Trading.css';
 
 const Trading = () => {
     const [markets, setMarkets] = useState([]);
+    const [selectedMarket, setSelectedMarket] = useState(null);
     const [positions, setPositions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [tradingMarket, setTradingMarket] = useState(null);
+    const [balance, setBalance] = useState(0);
     const [tradeForm, setTradeForm] = useState({
         position: 'LONG',
         price: '',
         quantity: 1
     });
-    const [submitting, setSubmitting] = useState(false);
+    const [showMarketMakerForm, setShowMarketMakerForm] = useState(false);
+    const [marketMakerForm, setMarketMakerForm] = useState({
+        spreadLow: '',
+        spreadHigh: ''
+    });
     const navigate = useNavigate();
+    const location = useLocation();
 
     const fetchTradingData = async () => {
         try {
@@ -31,7 +37,17 @@ const Trading = () => {
             ]);
             
             setMarkets(marketsResponse);
-            setPositions(positionsResponse);
+            setPositions(positionsResponse.positions || []);
+            
+            // Auto-select market if market ID is provided in URL
+            const urlParams = new URLSearchParams(location.search);
+            const marketId = urlParams.get('market');
+            if (marketId && marketsResponse.length > 0) {
+                const market = marketsResponse.find(m => m.id === parseInt(marketId));
+                if (market) {
+                    setSelectedMarket(market);
+                }
+            }
         } catch (error) {
             console.error('Error fetching trading data:', error);
             if (shouldRedirectToLogin(error)) {
@@ -47,10 +63,10 @@ const Trading = () => {
 
     useEffect(() => {
         fetchTradingData();
-    }, [navigate]);
+    }, [navigate, location.search]);
 
     const openTradeModal = (market) => {
-        setTradingMarket(market);
+        setSelectedMarket(market);
         
         // If user already has a trade on this market, populate the form
         if (market.user_trade) {
@@ -71,7 +87,7 @@ const Trading = () => {
     };
 
     const closeTradeModal = () => {
-        setTradingMarket(null);
+        setSelectedMarket(null);
         setTradeForm({
             position: 'LONG',
             price: '',
@@ -82,12 +98,11 @@ const Trading = () => {
 
     const handleTradeSubmit = async (e) => {
         e.preventDefault();
-        setSubmitting(true);
         setError('');
 
         try {
             const response = await apiPost(
-                `/api/market/${tradingMarket.id}/place_trade/`,
+                `/api/market/${selectedMarket.id}/place_trade/`,
                 {
                     position: tradeForm.position,
                     price: parseFloat(tradeForm.price),
@@ -102,8 +117,6 @@ const Trading = () => {
             console.error('Error placing trade:', error);
             const errorMessage = handleApiError(error);
             setError(`Error placing trade: ${errorMessage}`);
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -123,6 +136,51 @@ const Trading = () => {
         }
     };
 
+    const handleMarketMakerSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!selectedMarket) {
+            setError('Please select a market first');
+            return;
+        }
+
+        const spreadLow = parseFloat(marketMakerForm.spreadLow);
+        const spreadHigh = parseFloat(marketMakerForm.spreadHigh);
+
+        if (spreadLow >= spreadHigh) {
+            setError('Spread high must be greater than spread low');
+            return;
+        }
+
+        if (spreadLow < 0 || spreadHigh > 100) {
+            setError('Spread values must be between 0 and 100');
+            return;
+        }
+
+        try {
+            setError('');
+            
+            const response = await apiPost(`/api/market/${selectedMarket.id}/set-market-maker/`, {
+                spread_low: spreadLow,
+                spread_high: spreadHigh
+            });
+
+            alert(`Successfully set as market maker with spread: $${spreadLow} - $${spreadHigh}`);
+            setShowMarketMakerForm(false);
+            setMarketMakerForm({ spreadLow: '', spreadHigh: '' });
+            fetchTradingData(); // Refresh data
+            
+        } catch (error) {
+            console.error('Error setting market maker:', error);
+            if (shouldRedirectToLogin(error)) {
+                navigate('/auth');
+                return;
+            }
+            handleApiError(error);
+            setError('Failed to set market maker spread');
+        }
+    };
+
     if (loading) {
         return <div className="loading">Loading trading data...</div>;
     }
@@ -130,166 +188,303 @@ const Trading = () => {
     return (
         <div className="trading-container">
             <div className="trading-header">
-                <h1>Trading Dashboard</h1>
-                <button 
-                    className="back-button"
-                    onClick={() => navigate('/dashboard')}
-                >
-                    Back to Dashboard
-                </button>
+                <div className="header-content">
+                    <h1>Prediction Markets</h1>
+                    <div className="header-actions">
+                        <div className="balance-display">
+                            Balance: {formatCurrency(balance)}
+                        </div>
+                        <button 
+                            onClick={() => navigate('/trade-history')} 
+                            className="btn btn-secondary"
+                        >
+                            Trade History
+                        </button>
+                        <button 
+                            onClick={() => navigate('/dashboard')} 
+                            className="btn btn-primary"
+                        >
+                            Dashboard
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {error && <div className="error-message">{error}</div>}
 
-            {/* Open Markets Section */}
-            <div className="markets-section">
-                <h2>Open Markets</h2>
-                {markets.length === 0 ? (
-                    <div className="no-markets">No markets are currently open for trading.</div>
-                ) : (
-                    <div className="markets-grid">
-                        {markets.map(market => (
-                            <div key={market.id} className="market-card">
-                                <div className="market-header">
-                                    <h3>{market.premise}</h3>
-                                    <div className="market-spread">
-                                        Spread: {market.current_spread_display}
+            <div className="trading-layout">
+                {/* Markets List */}
+                <div className="markets-section">
+                    <h2>Available Markets</h2>
+                    {loading ? (
+                        <div className="loading-spinner">Loading markets...</div>
+                    ) : (
+                        <div className="markets-list">
+                            {markets.map(market => (
+                                <div 
+                                    key={market.id} 
+                                    className={`market-card ${selectedMarket?.id === market.id ? 'selected' : ''}`}
+                                    onClick={() => setSelectedMarket(market)}
+                                >
+                                    <div className="market-header">
+                                        <h3>{market.premise}</h3>
+                                        <span className={`status-badge ${getStatusBadgeClass(market.status)}`}>
+                                            {market.status}
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="market-details">
+                                        <div className="detail-row">
+                                            <span>Trading closes:</span>
+                                            <span>{formatDateTime(market.trading_close)}</span>
+                                        </div>
+                                        {market.market_maker && (
+                                            <div className="detail-row">
+                                                <span>Market Maker:</span>
+                                                <span>{market.market_maker_username}</span>
+                                            </div>
+                                        )}
+                                        {market.market_maker_spread_low && market.market_maker_spread_high && (
+                                            <div className="detail-row">
+                                                <span>Spread:</span>
+                                                <span>{formatCurrency(market.market_maker_spread_low)} - {formatCurrency(market.market_maker_spread_high)}</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Trading Panel */}
+                <div className="trading-panel">
+                    {selectedMarket ? (
+                        <>
+                            <div className="selected-market">
+                                <h2>{selectedMarket.premise}</h2>
+                                <p className="market-description">{selectedMarket.description}</p>
                                 
-                                <div className="market-details">
-                                    <div className="market-info">
-                                        <span>Unit Price: ${market.unit_price}</span>
-                                        <span>Trading closes: {formatDateTime(market.trading_close)}</span>
+                                <div className="market-info-grid">
+                                    <div className="info-item">
+                                        <span className="label">Status:</span>
+                                        <span className={`value status-${selectedMarket.status.toLowerCase()}`}>
+                                            {getStatusText(selectedMarket.status)}
+                                        </span>
                                     </div>
-                                    
-                                    <div className="trade-stats">
-                                        <span className="long-count">Long: {market.long_trades_count}</span>
-                                        <span className="short-count">Short: {market.short_trades_count}</span>
+                                    <div className="info-item">
+                                        <span className="label">Trading Closes:</span>
+                                        <span className="value">{formatDateTime(selectedMarket.trading_close)}</span>
                                     </div>
-                                    
-                                    <div className={`trade-status ${market.user_trade ? getPositionClass(market.user_trade.position) : ''}`}>
-                                        {getTradeStatusText(market)}
+                                    <div className="info-item">
+                                        <span className="label">Resolution Date:</span>
+                                        <span className="value">{formatDateTime(selectedMarket.resolution_date)}</span>
                                     </div>
                                 </div>
+
+                                {/* Market Maker Section */}
+                                {selectedMarket.status === 'OPEN' && !selectedMarket.market_maker && (
+                                    <div className="market-maker-section">
+                                        <h3>Become Market Maker</h3>
+                                        <p>Set the spread for this market and become the market maker. All other traders will trade against your spread.</p>
+                                        
+                                        {!showMarketMakerForm ? (
+                                            <button 
+                                                onClick={() => setShowMarketMakerForm(true)}
+                                                className="btn btn-secondary"
+                                            >
+                                                Set Market Maker Spread
+                                            </button>
+                                        ) : (
+                                            <form onSubmit={handleMarketMakerSubmit} className="market-maker-form">
+                                                <div className="form-row">
+                                                    <div className="form-group">
+                                                        <label>Spread Low (Sell Price):</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            step="0.01"
+                                                            value={marketMakerForm.spreadLow}
+                                                            onChange={(e) => setMarketMakerForm({
+                                                                ...marketMakerForm,
+                                                                spreadLow: e.target.value
+                                                            })}
+                                                            required
+                                                        />
+                                                    </div>
+                                                    <div className="form-group">
+                                                        <label>Spread High (Buy Price):</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            step="0.01"
+                                                            value={marketMakerForm.spreadHigh}
+                                                            onChange={(e) => setMarketMakerForm({
+                                                                ...marketMakerForm,
+                                                                spreadHigh: e.target.value
+                                                            })}
+                                                            required
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="form-actions">
+                                                    <button type="submit" className="btn btn-primary">
+                                                        Set Spread
+                                                    </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => {
+                                                            setShowMarketMakerForm(false);
+                                                            setMarketMakerForm({ spreadLow: '', spreadHigh: '' });
+                                                        }}
+                                                        className="btn btn-secondary"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Trading Form */}
+                                {selectedMarket.status === 'OPEN' && selectedMarket.market_maker && (
+                                    <div className="trading-form-section">
+                                        <h3>Place Trade</h3>
+                                        <form onSubmit={handleTradeSubmit} className="trade-form">
+                                            <div className="form-group">
+                                                <label>Position:</label>
+                                                <select
+                                                    value={tradeForm.position}
+                                                    onChange={(e) => setTradeForm({
+                                                        ...tradeForm,
+                                                        position: e.target.value
+                                                    })}
+                                                >
+                                                    <option value="LONG">LONG (Buy YES)</option>
+                                                    <option value="SHORT">SHORT (Buy NO)</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="form-group">
+                                                <label>Quantity:</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={tradeForm.quantity}
+                                                    onChange={(e) => setTradeForm({
+                                                        ...tradeForm,
+                                                        quantity: parseInt(e.target.value)
+                                                    })}
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div className="trade-pricing">
+                                                <div className="pricing-info">
+                                                    <div className="price-item">
+                                                        <span className="label">Your Price (LONG):</span>
+                                                        <span className="value">{formatCurrency(selectedMarket.market_maker_spread_high)}</span>
+                                                    </div>
+                                                    <div className="price-item">
+                                                        <span className="label">Your Price (SHORT):</span>
+                                                        <span className="value">{formatCurrency(selectedMarket.market_maker_spread_low)}</span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="total-cost">
+                                                    <strong>
+                                                        Total Cost: {formatCurrency(
+                                                            (tradeForm.position === 'LONG' 
+                                                                ? selectedMarket.market_maker_spread_high 
+                                                                : selectedMarket.market_maker_spread_low) * tradeForm.quantity
+                                                        )}
+                                                    </strong>
+                                                </div>
+                                            </div>
+
+                                            <button type="submit" className="btn btn-primary btn-large">
+                                                Place {tradeForm.position} Trade
+                                            </button>
+                                        </form>
+                                    </div>
+                                )}
+
+                                {selectedMarket.status === 'CLOSED' && (
+                                    <div className="market-closed-message">
+                                        <p>This market is closed for trading and awaiting settlement.</p>
+                                    </div>
+                                )}
+
+                                {selectedMarket.status === 'SETTLED' && (
+                                    <div className="market-settled-message">
+                                        <h3>Market Settled</h3>
+                                        <p>
+                                            <strong>Outcome:</strong> {selectedMarket.final_outcome ? 'YES' : 'NO'}
+                                        </p>
+                                        <p>
+                                            <strong>Settlement Price:</strong> {formatCurrency(selectedMarket.settlement_price)}
+                                        </p>
+                                        <p>
+                                            <strong>Settled:</strong> {formatDateTime(selectedMarket.settled_at)}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="no-market-selected">
+                            <h2>Select a Market</h2>
+                            <p>Choose a market from the list to view details and place trades.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Positions Section */}
+            {positions.length > 0 && (
+                <div className="positions-section">
+                    <h2>Your Positions</h2>
+                    <div className="positions-grid">
+                        {positions.map(position => (
+                            <div key={`${position.market_id}-${position.position}`} className="position-card">
+                                <div className="position-header">
+                                    <h3>{position.market_premise}</h3>
+                                    <span className={`position-badge ${getPositionClass(position.position)}`}>
+                                        {position.position}
+                                    </span>
+                                </div>
                                 
-                                <div className="market-actions">
-                                    {market.is_trading_active && market.can_user_trade.can_trade && (
-                                        <button 
-                                            className="trade-button"
-                                            onClick={() => openTradeModal(market)}
-                                        >
-                                            {market.user_trade ? 'Edit Trade' : 'Place Trade'}
-                                        </button>
-                                    )}
-                                    
-                                    {market.user_trade && market.is_trading_active && (
-                                        <button 
-                                            className="cancel-button"
-                                            onClick={() => handleCancelTrade(market.id)}
-                                        >
-                                            Cancel Trade
-                                        </button>
+                                <div className="position-details">
+                                    <div className="detail-row">
+                                        <span>Quantity:</span>
+                                        <span>{position.total_quantity} units</span>
+                                    </div>
+                                    <div className="detail-row">
+                                        <span>Avg Price:</span>
+                                        <span>{formatCurrency(position.average_price)}</span>
+                                    </div>
+                                    <div className="detail-row">
+                                        <span>Total Cost:</span>
+                                        <span>{formatCurrency(position.total_cost)}</span>
+                                    </div>
+                                    {position.is_settled && (
+                                        <>
+                                            <div className="detail-row">
+                                                <span>Settlement:</span>
+                                                <span>{formatCurrency(position.settlement_amount)}</span>
+                                            </div>
+                                            <div className={`detail-row profit-loss ${getProfitLossClass(position.profit_loss)}`}>
+                                                <span>P&L:</span>
+                                                <span>{position.profit_loss >= 0 ? '+' : ''}{formatCurrency(position.profit_loss)}</span>
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             </div>
                         ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Trade Modal */}
-            {tradingMarket && (
-                <div className="modal-overlay">
-                    <div className="trade-modal">
-                        <div className="modal-header">
-                            <h2>{tradingMarket.user_trade ? 'Edit Trade' : 'Place Trade'}</h2>
-                            <button className="close-button" onClick={closeTradeModal}>×</button>
-                        </div>
-                        
-                        <div className="modal-content">
-                            <div className="market-info">
-                                <h3>{tradingMarket.premise}</h3>
-                                <p>Current Spread: {tradingMarket.current_spread_display}</p>
-                                <p>Trading closes: {formatDateTime(tradingMarket.trading_close)}</p>
-                            </div>
-                            
-                            {error && <div className="error-message">{error}</div>}
-                            
-                            <form onSubmit={handleTradeSubmit} className="trade-form">
-                                <div className="form-group">
-                                    <label>Position:</label>
-                                    <div className="position-buttons">
-                                        <button
-                                            type="button"
-                                            className={`position-btn ${tradeForm.position === 'LONG' ? 'active long' : ''}`}
-                                            onClick={() => setTradeForm({...tradeForm, position: 'LONG'})}
-                                        >
-                                            Long
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className={`position-btn ${tradeForm.position === 'SHORT' ? 'active short' : ''}`}
-                                            onClick={() => setTradeForm({...tradeForm, position: 'SHORT'})}
-                                        >
-                                            Short
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>Price:</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            value={tradeForm.price}
-                                            onChange={(e) => setTradeForm({...tradeForm, price: e.target.value})}
-                                            required
-                                            min="0.01"
-                                        />
-                                        <small>
-                                            {tradeForm.position === 'LONG' 
-                                                ? `Minimum: ${tradingMarket.final_spread_high || 'N/A'}`
-                                                : `Maximum: ${tradingMarket.final_spread_low || 'N/A'}`
-                                            }
-                                        </small>
-                                    </div>
-                                    
-                                    <div className="form-group">
-                                        <label>Quantity:</label>
-                                        <input
-                                            type="number"
-                                            value={tradeForm.quantity}
-                                            onChange={(e) => setTradeForm({...tradeForm, quantity: parseInt(e.target.value)})}
-                                            required
-                                            min="1"
-                                        />
-                                    </div>
-                                </div>
-                                
-                                <div className="total-value">
-                                    <strong>Total Value: ${(parseFloat(tradeForm.price || 0) * parseInt(tradeForm.quantity || 1)).toFixed(2)}</strong>
-                                </div>
-                                
-                                <div className="form-actions">
-                                    <button 
-                                        type="submit" 
-                                        className="submit-button"
-                                        disabled={submitting}
-                                    >
-                                        {submitting ? 'Processing...' : (tradingMarket.user_trade ? 'Update Trade' : 'Place Trade')}
-                                    </button>
-                                    <button 
-                                        type="button" 
-                                        className="cancel-button"
-                                        onClick={closeTradeModal}
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
                     </div>
                 </div>
             )}

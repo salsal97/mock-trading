@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.utils import timezone
+from decimal import Decimal
 from .models import Market, SpreadBid, Trade
 from .serializers import (
     MarketSerializer, MarketCreateSerializer, MarketUpdateSerializer, MarketEditSerializer,
@@ -12,6 +13,7 @@ from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradeUpdateSerializer
 )
 from .permissions import IsAdminOrReadOnly
+from .utils import create_success_response, create_error_response
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,8 +25,8 @@ def auto_activate_eligible_markets():
     """
     eligible_markets = Market.objects.filter(
         status='CREATED',
-        spread_bidding_close__lt=timezone.now(),
-        final_spread_low__isnull=True,
+        spread_bidding_close_trading_open__lt=timezone.now(),
+        final_spread_low__isnull=True, ## TODO: Fix this, needs to ask for values if unset
         final_spread_high__isnull=True
     )
     
@@ -205,28 +207,67 @@ class MarketViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminUser])
     def manual_activate(self, request, pk=None):
-        """Manually activate a market (admin only)"""
+        """Manually activate a market (admin only) - allows admin override"""
         market = self.get_object()
         
-        if not market.should_auto_activate:
+        # Allow admin override - check basic eligibility only
+        if market.status != 'CREATED':
             return Response(
-                {'error': 'Market is not eligible for activation'},
+                {'error': 'Market must be in CREATED status to be activated'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        result = market.auto_activate_market()
-        
-        if result['success']:
-            serializer = MarketSerializer(market)
-            return Response({
-                'message': result['reason'],
-                'details': result['details'],
-                'market': serializer.data
-            })
-        else:
+        if market.final_spread_low is not None or market.final_spread_high is not None:
             return Response(
-                {'error': result['reason']},
+                {'error': 'Market has already been activated'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Use the existing auto_activate_market method but bypass timing check
+        # by temporarily modifying the market's bidding close time if needed
+        original_close_time = market.spread_bidding_close
+        admin_override = not market.should_auto_activate
+        
+        try:
+            if admin_override:
+                # Temporarily set bidding close to past time for admin override
+                from django.utils import timezone
+                market.spread_bidding_close = timezone.now() - timezone.timedelta(minutes=1)
+                market.save()
+            
+            result = market.auto_activate_market()
+            
+            if result['success']:
+                # Keep the original close time unless admin changed it intentionally
+                if admin_override:
+                    market.spread_bidding_close = original_close_time
+                    market.save()
+                
+                serializer = MarketSerializer(market)
+                return Response({
+                    'message': f"{result['reason']} (Admin Override)" if admin_override else result['reason'],
+                    'details': result['details'],
+                    'market': serializer.data
+                })
+            else:
+                # Restore original time if activation failed
+                if admin_override:
+                    market.spread_bidding_close = original_close_time
+                    market.save()
+                
+                return Response(
+                    {'error': result['reason']},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            # Restore original time if error occurred
+            if admin_override:
+                market.spread_bidding_close = original_close_time
+                market.save()
+            
+            return Response(
+                {'error': f'Error during activation: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=True, methods=['put', 'patch'], permission_classes=[IsAuthenticated, IsAdminUser])
@@ -260,40 +301,75 @@ class MarketViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def place_trade(self, request, pk=None):
-        """Place a trade on a market"""
-        market = self.get_object()
-        
-        # Check if user already has a trade on this market
-        existing_trade = market.get_user_trade(request.user)
-        
-        if existing_trade:
-            # Update existing trade
-            serializer = TradeUpdateSerializer(
-                existing_trade,
-                data=request.data,
-                context={'request': request}
-            )
-        else:
-            # Create new trade
-            serializer = TradeCreateSerializer(
-                data={**request.data, 'market': market.id},
-                context={'request': request}
-            )
-        
-        if serializer.is_valid():
-            trade = serializer.save()
+        """
+        Place a trade on a market (updated for market maker system)
+        """
+        try:
+            market = self.get_object()
             
-            # Return the trade data
-            response_serializer = TradeSerializer(trade)
-            return Response({
-                'message': 'Trade placed successfully' if not existing_trade else 'Trade updated successfully',
-                'trade': response_serializer.data
-            })
-        else:
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST
+            if market.status != 'OPEN':
+                return create_error_response("Market is not open for trading")
+                
+            if not market.market_maker:
+                return create_error_response("Market does not have a market maker yet")
+                
+            if market.market_maker == request.user:
+                return create_error_response("Market makers cannot trade on their own markets")
+            
+            position = request.data.get('position', '').upper()
+            quantity = request.data.get('quantity', 1)
+            
+            if position not in ['LONG', 'SHORT']:
+                return create_error_response("Position must be LONG or SHORT")
+                
+            try:
+                quantity = int(quantity)
+                if quantity <= 0:
+                    return create_error_response("Quantity must be positive")
+            except (ValueError, TypeError):
+                return create_error_response("Invalid quantity")
+            
+            # Price is determined by market maker's spread
+            if position == 'LONG':
+                # Buying LONG (YES) - pay the higher price
+                price = market.market_maker_spread_high
+            else:
+                # Buying SHORT (NO) - pay the lower price  
+                price = market.market_maker_spread_low
+                
+            total_cost = Decimal(str(price)) * Decimal(str(quantity))
+            
+            # Check if user has sufficient balance
+            if request.user.profile.balance < total_cost:
+                return create_error_response("Insufficient balance")
+            
+            # Create the trade
+            trade = Trade.objects.create(
+                user=request.user,
+                market=market,
+                position=position,
+                price=price,
+                quantity=quantity
             )
+            
+            # Deduct cost from user balance
+            request.user.profile.balance -= total_cost
+            request.user.profile.save()
+            
+            return create_success_response(
+                f"Trade placed successfully: {position} {quantity} units at ${price}",
+                {
+                    'trade_id': trade.id,
+                    'position': position,
+                    'price': float(price),
+                    'quantity': quantity,
+                    'total_cost': float(total_cost),
+                    'remaining_balance': float(request.user.profile.balance)
+                }
+            )
+            
+        except Exception as e:
+            return create_error_response(f"Error placing trade: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
     def trades(self, request, pk=None):
@@ -404,7 +480,7 @@ def settle_market(request, market_id):
     """
     try:
         if not request.user.is_staff:
-            return create_error_response("Admin access required", 403)
+            return create_error_response("Admin access required", status_code=status.HTTP_403_FORBIDDEN)
             
         market = get_object_or_404(Market, id=market_id)
         
@@ -431,7 +507,7 @@ def settle_market(request, market_id):
             return create_error_response(message)
             
     except Exception as e:
-        return create_error_response(f"Error settling market: {str(e)}", 500)
+        return create_error_response(f"Error settling market: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -484,7 +560,7 @@ def trade_history(request):
         )
         
     except Exception as e:
-        return create_error_response(f"Error retrieving trade history: {str(e)}", 500)
+        return create_error_response(f"Error retrieving trade history: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -494,7 +570,7 @@ def auto_settle_markets(request):
     """
     try:
         if not request.user.is_staff:
-            return create_error_response("Admin access required", 403)
+            return create_error_response("Admin access required", status_code=status.HTTP_403_FORBIDDEN)
             
         markets_to_close = Market.objects.filter(
             status='OPEN',
@@ -515,4 +591,127 @@ def auto_settle_markets(request):
         )
         
     except Exception as e:
-        return create_error_response(f"Error in auto-settlement: {str(e)}", 500)
+        return create_error_response(f"Error in auto-settlement: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_market_maker(request, market_id):
+    """
+    Set a user as market maker for a market with their spread
+    """
+    try:
+        market = get_object_or_404(Market, id=market_id)
+        
+        if market.status != 'OPEN':
+            return create_error_response("Market is not open for trading")
+            
+        if market.market_maker:
+            return create_error_response("Market already has a market maker")
+            
+        spread_low = request.data.get('spread_low')
+        spread_high = request.data.get('spread_high')
+        
+        if spread_low is None or spread_high is None:
+            return create_error_response("Both spread_low and spread_high are required")
+            
+        spread_low = float(spread_low)
+        spread_high = float(spread_high)
+        
+        if spread_low >= spread_high:
+            return create_error_response("Spread high must be greater than spread low")
+            
+        if spread_low < 0 or spread_high > 100:
+            return create_error_response("Spread values must be between 0 and 100")
+            
+        # Set the user as market maker
+        market.market_maker = request.user
+        market.market_maker_spread_low = spread_low
+        market.market_maker_spread_high = spread_high
+        market.save()
+        
+        return create_success_response(
+            f"Successfully set as market maker with spread: ${spread_low} - ${spread_high}",
+            {
+                'market_id': market.id,
+                'market_maker': request.user.username,
+                'spread_low': spread_low,
+                'spread_high': spread_high
+            }
+        )
+        
+    except ValueError:
+        return create_error_response("Invalid spread values")
+    except Exception as e:
+        return create_error_response(f"Error setting market maker: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_positions(request):
+    """
+    Get user's current active positions (trades on open markets)
+    """
+    try:
+        # Get user's trades on open markets
+        active_trades = Trade.objects.filter(
+            user=request.user,
+            market__status='OPEN'
+        ).select_related('market').order_by('-trade_time')
+        
+        positions_data = []
+        for trade in active_trades:
+            market = trade.market
+            position_info = {
+                'id': trade.id,
+                'market_id': market.id,
+                'market_premise': market.premise,
+                'market_status': market.status,
+                'market': {
+                    'id': market.id,
+                    'premise': market.premise,
+                    'status': market.status,
+                    'trading_close': market.trading_close.isoformat(),
+                    'final_spread_low': market.final_spread_low,
+                    'final_spread_high': market.final_spread_high
+                },
+                'position': trade.position,
+                'price': float(trade.price),
+                'quantity': trade.quantity,
+                'total_quantity': trade.quantity,  # Frontend expects this
+                'average_price': float(trade.price),  # Frontend expects this
+                'total_cost': float(trade.price * trade.quantity),
+                'current_value': float(
+                    market.market_maker_spread_high if trade.position == 'LONG' 
+                    else market.market_maker_spread_low
+                ) * trade.quantity if market.market_maker_spread_high else float(trade.price * trade.quantity),
+                'unrealized_pnl': float(
+                    (float(market.market_maker_spread_high) - float(trade.price)) * trade.quantity 
+                    if trade.position == 'LONG' 
+                    else (float(trade.price) - float(market.market_maker_spread_low)) * trade.quantity
+                ) if market.market_maker_spread_high and market.market_maker_spread_low else 0.0,
+                'trade_time': trade.trade_time.isoformat(),
+                'is_settled': trade.is_settled
+            }
+            
+            # Add settlement info if settled
+            if trade.is_settled:
+                position_info.update({
+                    'settlement_amount': float(trade.settlement_amount or 0),
+                    'profit_loss': float(trade.profit_loss or 0),
+                    'settled_at': trade.settled_at.isoformat() if trade.settled_at else None
+                })
+            
+            positions_data.append(position_info)
+        
+        total_unrealized_pnl = sum([pos['unrealized_pnl'] for pos in positions_data])
+        
+        return create_success_response(
+            "Positions retrieved successfully",
+            {
+                'positions': positions_data,
+                'total_positions': len(positions_data),
+                'total_unrealized_pnl': total_unrealized_pnl
+            }
+        )
+        
+    except Exception as e:
+        return create_error_response(f"Error retrieving positions: {str(e)}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)

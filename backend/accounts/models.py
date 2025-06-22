@@ -10,6 +10,7 @@ class UserProfile(models.Model):
     is_verified = models.BooleanField(default=False)
     verification_date = models.DateTimeField(null=True, blank=True)
     verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_users')
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=1000.00, help_text="User's trading balance")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -79,11 +79,14 @@ export const shouldRedirectToLogin = (error) => {
  */
 export const apiRequest = async (method, url, data = null, options = {}) => {
     try {
+        // Don't add auth headers for login/register endpoints
+        const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+        
         const config = {
             method,
             url: `${API_BASE_URL}${url}`,
             headers: {
-                ...getAuthHeaders(),
+                ...(isAuthEndpoint ? {} : getAuthHeaders()),
                 ...options.headers
             },
             ...options

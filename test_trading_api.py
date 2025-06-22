@@ -39,8 +39,7 @@ def create_test_market(token):
         'unit_price': 10.0,
         'initial_spread': 20,
         'spread_bidding_open': (now - timedelta(hours=2)).isoformat(),
-        'spread_bidding_close': (now - timedelta(hours=1)).isoformat(),
-        'trading_open': (now - timedelta(minutes=30)).isoformat(),
+        'spread_bidding_close_trading_open': (now - timedelta(hours=1)).isoformat(),
         'trading_close': (now + timedelta(hours=2)).isoformat()
     }
     

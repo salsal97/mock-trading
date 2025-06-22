@@ -34,24 +34,18 @@ def validate_market_timing(market_data):
     errors = {}
     
     spread_bidding_open = market_data.get('spread_bidding_open')
-    spread_bidding_close = market_data.get('spread_bidding_close')
-    trading_open = market_data.get('trading_open')
+    spread_bidding_close_trading_open = market_data.get('spread_bidding_close_trading_open')
     trading_close = market_data.get('trading_close')
     
     # Spread bidding timing
-    if spread_bidding_open and spread_bidding_close:
-        if spread_bidding_open >= spread_bidding_close:
-            errors['spread_bidding_close'] = 'Spread bidding close must be after spread bidding open'
+    if spread_bidding_open and spread_bidding_close_trading_open:
+        if spread_bidding_open >= spread_bidding_close_trading_open:
+            errors['spread_bidding_close_trading_open'] = 'Spread bidding close & trading open must be after spread bidding open'
     
     # Trading timing
-    if trading_open and trading_close:
-        if trading_open >= trading_close:
-            errors['trading_close'] = 'Trading close must be after trading open'
-    
-    # Sequential timing
-    if spread_bidding_close and trading_open:
-        if spread_bidding_close > trading_open:
-            errors['trading_open'] = 'Trading open must be after spread bidding close'
+    if spread_bidding_close_trading_open and trading_close:
+        if spread_bidding_close_trading_open >= trading_close:
+            errors['trading_close'] = 'Trading close must be after spread bidding close & trading open'
     
     return errors
 

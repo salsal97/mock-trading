@@ -21,17 +21,23 @@ const AdminLanding = () => {
                 setLoading(true);
                 setError('');
                 
-                const [usersResponse, marketsResponse, tradesResponse] = await Promise.all([
+                // Fetch data with error handling for individual endpoints
+                const [usersResponse, marketsResponse] = await Promise.all([
                     apiGet('/api/auth/admin/users/'),
-                    apiGet('/api/market/'),
-                    apiGet('/api/market/trades/')
+                    apiGet('/api/market/')
                 ]);
+
+                // Calculate trades count from market data (since global trades endpoint is not available)
+                const tradesCount = marketsResponse.reduce((total, market) => 
+                    total + (market.total_trades_count || 0), 0);
 
                 setStats({
                     totalUsers: usersResponse.length || 0,
                     totalMarkets: marketsResponse.length || 0,
-                    activeMarkets: marketsResponse.filter(market => market.status === 'active').length || 0,
-                    totalTrades: tradesResponse.length || 0
+                    activeMarkets: marketsResponse.filter(market => 
+                        market.status === 'CREATED' || market.status === 'ACTIVE' || 
+                        market.is_spread_bidding_active || market.is_trading_active).length || 0,
+                    totalTrades: tradesCount
                 });
             } catch (error) {
                 console.error('Error fetching admin data:', error);
@@ -78,33 +84,75 @@ const AdminLanding = () => {
 
             {error && <div className="error-message">{error}</div>}
 
-            <div className="stats-grid">
-                <div className="stat-card">
-                    <h3>Total Users</h3>
-                    <div className="stat-number">{stats.totalUsers}</div>
+            <div className="admin-cards">
+                <div className="admin-card">
+                    <div className="card-icon">👥</div>
+                    <h2>User Management</h2>
+                    <p>Manage user accounts and verification status</p>
+                    <div className="stats-grid">
+                        <div className="stat-item">
+                            <span className="stat-number">{stats.totalUsers}</span>
+                            <span className="stat-label">Total Users</span>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => navigate('/admin/users')}
+                        className="btn btn-primary"
+                    >
+                        Manage Users
+                    </button>
                 </div>
-                <div className="stat-card">
-                    <h3>Total Markets</h3>
-                    <div className="stat-number">{stats.totalMarkets}</div>
-                </div>
-                <div className="stat-card">
-                    <h3>Active Markets</h3>
-                    <div className="stat-number">{stats.activeMarkets}</div>
-                </div>
-                <div className="stat-card">
-                    <h3>Total Trades</h3>
-                    <div className="stat-number">{stats.totalTrades}</div>
-                </div>
-            </div>
 
-            <div className="admin-nav-grid">
-                <div className="nav-card" onClick={() => navigate('/admin/markets')}>
-                    <h3>Market Management</h3>
-                    <p>Create, edit, and manage prediction markets</p>
+                <div className="admin-card">
+                    <div className="card-icon">📊</div>
+                    <h2>Market Management</h2>
+                    <p>Create and manage prediction markets</p>
+                    <div className="stats-grid">
+                        <div className="stat-item">
+                            <span className="stat-number">{stats.totalMarkets}</span>
+                            <span className="stat-label">Total Markets</span>
+                        </div>
+                        <div className="stat-item">
+                            <span className="stat-number">{stats.activeMarkets}</span>
+                            <span className="stat-label">Active Markets</span>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => navigate('/admin/markets')}
+                        className="btn btn-primary"
+                    >
+                        Manage Markets
+                    </button>
                 </div>
-                <div className="nav-card" onClick={() => navigate('/admin/users')}>
-                    <h3>User Management</h3>
-                    <p>View and manage user accounts</p>
+
+                <div className="admin-card">
+                    <div className="card-icon">⚖️</div>
+                    <h2>Market Settlement</h2>
+                    <p>Settle closed markets and distribute profits/losses</p>
+                    <button 
+                        onClick={() => navigate('/admin/settlement')}
+                        className="btn btn-primary"
+                    >
+                        Settle Markets
+                    </button>
+                </div>
+
+                <div className="admin-card">
+                    <div className="card-icon">📈</div>
+                    <h2>Trading Statistics</h2>
+                    <p>Overview of trading activity and market performance</p>
+                    <div className="stats-grid">
+                        <div className="stat-item">
+                            <span className="stat-number">{stats.totalTrades}</span>
+                            <span className="stat-label">Total Trades</span>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => navigate('/admin/analytics')}
+                        className="btn btn-secondary"
+                    >
+                        View Analytics
+                    </button>
                 </div>
             </div>
         </div>

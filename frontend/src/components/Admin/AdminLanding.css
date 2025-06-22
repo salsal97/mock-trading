@@ -1,24 +1,23 @@
 /* AdminLanding Component Specific Styles */
-.admin-landing-container {
+.admin-landing {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 20px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: var(--spacing-lg);
+    background: var(--color-background);
+    min-height: 100vh;
 }
 
 .admin-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 30px;
-    padding-bottom: 20px;
-    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: var(--spacing-xl);
 }
 
 .admin-header h1 {
-    color: #2c3e50;
+    color: var(--color-text);
     margin: 0;
-    font-size: 2.5rem;
+    font-size: 2rem;
     font-weight: 600;
 }
 
@@ -37,6 +36,90 @@
 .logout-button:hover {
     background: #c82333;
     transform: translateY(-1px);
+}
+
+/* Admin Cards Grid */
+.admin-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--spacing-lg);
+}
+
+.admin-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-lg);
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.3s ease;
+}
+
+.admin-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-md);
+}
+
+.card-icon {
+    font-size: 3rem;
+    margin-bottom: var(--spacing-md);
+    display: block;
+}
+
+.admin-card h2 {
+    color: var(--color-text);
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.admin-card p {
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--spacing-lg) 0;
+    line-height: 1.5;
+}
+
+/* Statistics Grid within cards */
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-sm);
+    background: var(--color-background);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+}
+
+.stat-number {
+    color: var(--color-primary);
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.stat-label {
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Loading and Error States */
+.loading-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+    color: var(--color-text-secondary);
+    font-size: 1.1rem;
 }
 
 /* Statistics Overview */
@@ -79,13 +162,6 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-}
-
-.stat-number {
-    color: #2c3e50;
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin-bottom: 5px;
 }
 
 .stat-detail {
@@ -291,25 +367,54 @@
 
 /* Responsive Design */
 @media (max-width: 768px) {
+    .admin-landing {
+        padding: var(--spacing-md);
+    }
+    
     .admin-header {
         flex-direction: column;
-        gap: 15px;
+        align-items: stretch;
+        gap: var(--spacing-md);
+    }
+    
+    .admin-header h1 {
+        font-size: 1.5rem;
         text-align: center;
     }
-
+    
+    .admin-cards {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+    
+    .admin-card {
+        padding: var(--spacing-md);
+    }
+    
+    .card-icon {
+        font-size: 2.5rem;
+    }
+    
     .stats-grid {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    }
-
-    .actions-grid {
         grid-template-columns: 1fr;
+        gap: var(--spacing-sm);
     }
+}
 
-    .markets-grid {
-        grid-template-columns: 1fr;
+@media (max-width: 480px) {
+    .admin-landing {
+        padding: var(--spacing-sm);
     }
-
-    .admin-landing-container {
-        padding: 15px;
+    
+    .admin-card {
+        padding: var(--spacing-sm);
+    }
+    
+    .card-icon {
+        font-size: 2rem;
+    }
+    
+    .admin-card h2 {
+        font-size: 1.1rem;
     }
 } 

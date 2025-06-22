@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -108,14 +109,17 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD'),
         'HOST': os.environ.get('DB_HOST'),
         'PORT': os.environ.get('DB_PORT', '5432'),
-        'OPTIONS': {
-            'sslmode': 'require',
-        },
+        'OPTIONS': {},
     }
 }
 
-# For testing, disable SSL requirement (GitHub Actions PostgreSQL doesn't use SSL)
-import sys
+# For production or when SSL is explicitly required
+if os.environ.get('DB_REQUIRE_SSL', '').lower() == 'true':
+    DATABASES['default']['OPTIONS'] = {
+        'sslmode': 'require',
+    }
+
+# For testing, ensure no SSL requirement
 if 'test' in sys.argv or os.environ.get('GITHUB_ACTIONS'):
     DATABASES['default']['OPTIONS'] = {}
 

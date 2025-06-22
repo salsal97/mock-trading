@@ -127,13 +127,6 @@ This document provides detailed documentation for all major functions and utilit
 **Returns**: CSS class name string
 **Usage**: Used for color-coding long/short positions in trading interfaces
 
-#### `shouldShowAutoActivateButton(market)`
-**Purpose**: Determines if the auto-activate button should be displayed for a market
-**Parameters**: 
-- `market` (object): Market data object
-**Returns**: Boolean indicating whether to show the button
-**Usage**: Used in admin market management to show activation controls
-
 #### `getTradeStatusText(status)`
 **Purpose**: Converts trade status codes to display text
 **Parameters**: 

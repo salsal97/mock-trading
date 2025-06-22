@@ -5,6 +5,10 @@ param(
 
 # Mock Trading Application Management Script
 
+# Set local development flag
+$env:MOCK_TRADING_LOCAL_DEV = "true"
+Write-Host "Running in local development mode..." -ForegroundColor Cyan
+
 # Function to check if a command exists
 function Test-Command($cmdname) {
     return [bool](Get-Command -Name $cmdname -ErrorAction SilentlyContinue)
@@ -13,6 +17,8 @@ function Test-Command($cmdname) {
 # Function to create superuser if none exists
 function Create-SuperUser {
     Write-Host "`nChecking for superuser..." -ForegroundColor Yellow
+    # Load environment variables
+    & ".\setup-env.ps1"
     Set-Location backend
     .\venv\Scripts\activate
     python manage.py shell -c "
@@ -32,6 +38,8 @@ else:
 # Function to show all users in the database
 function Show-Users {
     Write-Host "`nFetching users from database..." -ForegroundColor Yellow
+    # Load environment variables
+    & ".\setup-env.ps1"
     Set-Location backend
     .\venv\Scripts\activate
     $pythonCode = @"
@@ -102,6 +110,8 @@ for user in user_data:
 # Function to run migrations
 function Run-Migrations {
     Write-Host "`nRunning migrations..." -ForegroundColor Yellow
+    # Load environment variables
+    & ".\setup-env.ps1"
     Set-Location backend
     .\venv\Scripts\activate
     python manage.py makemigrations
@@ -112,6 +122,8 @@ function Run-Migrations {
 # Function to create user profiles
 function Create-UserProfiles {
     Write-Host "`nCreating user profiles..." -ForegroundColor Yellow
+    # Load environment variables
+    & ".\setup-env.ps1"
     Set-Location backend
     .\venv\Scripts\activate
     python manage.py create_user_profiles
@@ -129,6 +141,8 @@ function Start-Application {
 # Function to reset admin password
 function Reset-AdminPassword {
     Write-Host "`nResetting admin password..." -ForegroundColor Yellow
+    # Load environment variables
+    & ".\setup-env.ps1"
     Set-Location backend
     .\venv\Scripts\activate
     $pythonCode = @"

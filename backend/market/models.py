@@ -44,11 +44,8 @@ class Market(models.Model):
     spread_bidding_open = models.DateTimeField(
         help_text="When spread bidding opens"
     )
-    spread_bidding_close = models.DateTimeField(
-        help_text="When spread bidding closes"
-    )
-    trading_open = models.DateTimeField(
-        help_text="When trading opens"
+    spread_bidding_close_trading_open = models.DateTimeField(
+        help_text="When spread bidding closes and trading opens"
     )
     trading_close = models.DateTimeField(
         help_text="When trading closes"
@@ -83,13 +80,13 @@ class Market(models.Model):
     def is_spread_bidding_active(self):
         """Check if spread bidding is currently active"""
         now = timezone.now()
-        return self.spread_bidding_open <= now <= self.spread_bidding_close
+        return self.spread_bidding_open <= now <= self.spread_bidding_close_trading_open
     
     @property
     def is_trading_active(self):
         """Check if trading is currently active"""
         now = timezone.now()
-        return self.trading_open <= now <= self.trading_close and self.status == 'OPEN'
+        return self.spread_bidding_close_trading_open <= now <= self.trading_close and self.status == 'OPEN'
     
     @property
     def can_be_settled(self):
@@ -103,9 +100,9 @@ class Market(models.Model):
         now = timezone.now()
         return (
             self.status == 'CREATED' and 
-            now > self.spread_bidding_close and 
+            now > self.spread_bidding_close_trading_open and 
             self.final_spread_low is None and 
-            self.final_spread_high is None
+            self.final_spread_high is None #TODO: Fix this
         )
     
     @property
@@ -180,7 +177,7 @@ class Market(models.Model):
             return False, "Only verified users can trade"
         
         # User cannot be the market maker
-        if self.created_by == user:
+        if self.market_maker == user or self.created_by == user:
             return False, "Market makers cannot trade on their own markets"
         
         return True, "User can trade"
@@ -206,7 +203,7 @@ class Market(models.Model):
                     'reason': 'Market is not eligible for auto-activation',
                     'details': {
                         'status': self.status,
-                        'bidding_closed': timezone.now() > self.spread_bidding_close,
+                        'bidding_closed': timezone.now() > self.spread_bidding_close_trading_open,
                         'already_activated': self.final_spread_low is not None
                     }
                 }
@@ -219,7 +216,12 @@ class Market(models.Model):
                 logger.info(f"Market {self.id}: No bids received, using initial spread")
                 self.final_spread_low = 50 - (self.initial_spread // 2)
                 self.final_spread_high = 50 + (self.initial_spread // 2)
-                # Keep original created_by
+                
+                # Set market maker fields for trading system
+                self.market_maker = self.created_by  # Keep original creator as market maker
+                self.market_maker_spread_low = self.final_spread_low
+                self.market_maker_spread_high = self.final_spread_high
+                
                 self.status = 'OPEN'
                 self.save()
                 
@@ -240,6 +242,12 @@ class Market(models.Model):
             self.final_spread_low = winning_bid.spread_low
             self.final_spread_high = winning_bid.spread_high
             self.created_by = winning_bid.user  # Winner becomes the market maker
+            
+            # Set market maker fields for trading system
+            self.market_maker = winning_bid.user
+            self.market_maker_spread_low = winning_bid.spread_low
+            self.market_maker_spread_high = winning_bid.spread_high
+            
             self.status = 'OPEN'
             self.save()
             
@@ -299,6 +307,33 @@ class Market(models.Model):
             # Auto-settlement logic could be added here based on business rules
             return True
         return False
+
+    def save(self, *args, **kwargs):
+        """Override save to ensure market maker fields are properly set"""
+        # If market is being set to OPEN status, ensure market maker fields are set
+        if self.status == 'OPEN':
+            if not self.market_maker:
+                # If no market maker is set, use the market creator as default
+                self.market_maker = self.created_by
+                
+            if not self.market_maker_spread_low or not self.market_maker_spread_high:
+                # If market maker spread is not set, use final spread or initial spread
+                if self.final_spread_low and self.final_spread_high:
+                    self.market_maker_spread_low = self.final_spread_low
+                    self.market_maker_spread_high = self.final_spread_high
+                else:
+                    # Calculate from initial spread if final spread not set
+                    self.final_spread_low = 50 - (self.initial_spread // 2)
+                    self.final_spread_high = 50 + (self.initial_spread // 2)
+                    self.market_maker_spread_low = self.final_spread_low
+                    self.market_maker_spread_high = self.final_spread_high
+                    
+            if not self.final_spread_low or not self.final_spread_high:
+                # Ensure final spread is always set for OPEN markets
+                self.final_spread_low = self.market_maker_spread_low
+                self.final_spread_high = self.market_maker_spread_high
+        
+        super().save(*args, **kwargs)
 
 
 class SpreadBid(models.Model):

@@ -23,8 +23,7 @@ const MarketManagement = () => {
         unit_price: 1.0,
         initial_spread: '',
         spread_bidding_open: '',
-        spread_bidding_close: '',
-        trading_open: '',
+        spread_bidding_close_trading_open: '',
         trading_close: ''
     });
     const [editMarket, setEditMarket] = useState({
@@ -32,8 +31,7 @@ const MarketManagement = () => {
         unit_price: 1.0,
         initial_spread: '',
         spread_bidding_open: '',
-        spread_bidding_close: '',
-        trading_open: '',
+        spread_bidding_close_trading_open: '',
         trading_close: '',
         status: '',
         outcome: ''
@@ -46,9 +44,9 @@ const MarketManagement = () => {
 
     // Real-time validation as user types
     useEffect(() => {
-        const errors = validateMarketTiming(newMarket);
-        setValidationErrors(errors);
-    }, [newMarket.spread_bidding_open, newMarket.spread_bidding_close, newMarket.trading_open, newMarket.trading_close]);
+        const validationResult = validateMarketTiming(newMarket);
+        setValidationErrors(validationResult.errors || {});
+    }, [newMarket.spread_bidding_open, newMarket.spread_bidding_close_trading_open, newMarket.trading_close]);
 
     useEffect(() => {
         if (newMarket.activationTime && newMarket.closingTime) {
@@ -97,8 +95,7 @@ const MarketManagement = () => {
                 unit_price: 1.0,
                 initial_spread: '',
                 spread_bidding_open: '',
-                spread_bidding_close: '',
-                trading_open: '',
+                spread_bidding_close_trading_open: '',
                 trading_close: ''
             });
             setShowCreateForm(false);
@@ -141,8 +138,7 @@ const MarketManagement = () => {
             unit_price: market.unit_price,
             initial_spread: market.initial_spread,
             spread_bidding_open: formatForDateTimeInput(market.spread_bidding_open),
-            spread_bidding_close: formatForDateTimeInput(market.spread_bidding_close),
-            trading_open: formatForDateTimeInput(market.trading_open),
+            spread_bidding_close_trading_open: formatForDateTimeInput(market.spread_bidding_close_trading_open),
             trading_close: formatForDateTimeInput(market.trading_close),
             status: market.status,
             outcome: market.outcome || ''
@@ -338,39 +334,29 @@ const MarketManagement = () => {
                                     min={getMinDateTime('spread_bidding_open', newMarket)}
                                     onChange={(e) => setNewMarket({...newMarket, spread_bidding_open: e.target.value})}
                                     required
+                                    className={validationErrors.spread_bidding_open ? 'error' : ''}
                                 />
+                                {validationErrors.spread_bidding_open && (
+                                    <span className="validation-error">{validationErrors.spread_bidding_open}</span>
+                                )}
                             </div>
                             <div className="form-group">
-                                <label>Spread Bidding Close:</label>
+                                <label>Spread Bidding Close & Trading Open:</label>
                                 <input
                                     type="datetime-local"
-                                    value={newMarket.spread_bidding_close}
-                                    min={getMinDateTime('spread_bidding_close', newMarket)}
-                                    onChange={(e) => setNewMarket({...newMarket, spread_bidding_close: e.target.value})}
+                                    value={newMarket.spread_bidding_close_trading_open}
+                                    min={getMinDateTime('spread_bidding_close_trading_open', newMarket)}
+                                    onChange={(e) => setNewMarket({...newMarket, spread_bidding_close_trading_open: e.target.value})}
                                     required
-                                    className={validationErrors.spread_bidding_close ? 'error' : ''}
+                                    className={validationErrors.spread_bidding_close_trading_open ? 'error' : ''}
                                 />
-                                {validationErrors.spread_bidding_close && (
-                                    <span className="validation-error">{validationErrors.spread_bidding_close}</span>
+                                {validationErrors.spread_bidding_close_trading_open && (
+                                    <span className="validation-error">{validationErrors.spread_bidding_close_trading_open}</span>
                                 )}
                             </div>
                         </div>
 
                         <div className="form-row">
-                            <div className="form-group">
-                                <label>Trading Open:</label>
-                                <input
-                                    type="datetime-local"
-                                    value={newMarket.trading_open}
-                                    min={getMinDateTime('trading_open', newMarket)}
-                                    onChange={(e) => setNewMarket({...newMarket, trading_open: e.target.value})}
-                                    required
-                                    className={validationErrors.trading_open ? 'error' : ''}
-                                />
-                                {validationErrors.trading_open && (
-                                    <span className="validation-error">{validationErrors.trading_open}</span>
-                                )}
-                            </div>
                             <div className="form-group">
                                 <label>Trading Close:</label>
                                 <input
@@ -452,26 +438,17 @@ const MarketManagement = () => {
                                 />
                             </div>
                             <div className="form-group">
-                                <label>Spread Bidding Close:</label>
+                                <label>Spread Bidding Close & Trading Open:</label>
                                 <input
                                     type="datetime-local"
-                                    value={editMarket.spread_bidding_close}
-                                    onChange={(e) => setEditMarket({...editMarket, spread_bidding_close: e.target.value})}
+                                    value={editMarket.spread_bidding_close_trading_open}
+                                    onChange={(e) => setEditMarket({...editMarket, spread_bidding_close_trading_open: e.target.value})}
                                     required
                                 />
                             </div>
                         </div>
 
                         <div className="form-row">
-                            <div className="form-group">
-                                <label>Trading Open:</label>
-                                <input
-                                    type="datetime-local"
-                                    value={editMarket.trading_open}
-                                    onChange={(e) => setEditMarket({...editMarket, trading_open: e.target.value})}
-                                    required
-                                />
-                            </div>
                             <div className="form-group">
                                 <label>Trading Close:</label>
                                 <input
@@ -549,14 +526,14 @@ const MarketManagement = () => {
                                 {/* Auto-activation status */}
                                 {shouldShowAutoActivateButton(market) && (
                                     <div className="auto-activate-notice">
-                                        <strong>⚠️ Ready for Auto-Activation:</strong> Bidding window closed, market can be activated
+                                        <strong>⚠️ Override Auto-Activation:</strong> Market can be activated manually
                                     </div>
                                 )}
                                 
                                 {/* Timing Information */}
                                 <div className="market-timing">
-                                    <span>Spread Bidding: {formatDateTime(market.spread_bidding_open)} - {formatDateTime(market.spread_bidding_close)}</span>
-                                    <span>Trading: {formatDateTime(market.trading_open)} - {formatDateTime(market.trading_close)}</span>
+                                    <span>Spread Bidding: {formatDateTime(market.spread_bidding_open)} - {formatDateTime(market.spread_bidding_close_trading_open)}</span>
+                                    <span>Trading: {formatDateTime(market.spread_bidding_close_trading_open)} - {formatDateTime(market.trading_close)}</span>
                                 </div>
                                 
                                 {/* Final Spread Display */}

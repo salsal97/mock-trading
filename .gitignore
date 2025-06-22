@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 .secret
 local_env.py
+setup-env.ps1
 __pycache__/
 *.py[cod]
 *$py.class

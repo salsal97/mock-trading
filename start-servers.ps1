@@ -4,6 +4,14 @@ Write-Host "Starting Mock Trading Application..." -ForegroundColor Green
 # Get the script's directory
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Load environment variables (only in local development)
+if (Test-Path (Join-Path $scriptPath "setup-env.ps1")) {
+    Write-Host "Loading local development environment variables..." -ForegroundColor Yellow
+    & (Join-Path $scriptPath "setup-env.ps1")
+} else {
+    Write-Host "No local environment setup found - using system environment variables" -ForegroundColor Gray
+}
+
 # Function to check if a command exists
 function Test-Command($cmdname) {
     return [bool](Get-Command -Name $cmdname -ErrorAction SilentlyContinue)

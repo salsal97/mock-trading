@@ -82,6 +82,11 @@ const Auth = () => {
         setSuccess('');
         setLoading(true);
 
+        // Clear any existing token before login attempt
+        if (isLogin) {
+            localStorage.removeItem('token');
+        }
+
         try {
             const endpoint = isLogin ? '/api/auth/login/' : '/api/auth/register/';
             const response = await apiPost(endpoint, formData);

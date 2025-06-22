@@ -12,7 +12,7 @@ class MarketAdmin(admin.ModelAdmin):
         'unit_price', 
         'current_spread_display',
         'created_by', 
-        'trading_open', 
+        'spread_bidding_close_trading_open', 
         'trading_close',
         'is_trading_active',
         'should_auto_activate',
@@ -23,13 +23,19 @@ class MarketAdmin(admin.ModelAdmin):
         'status', 
         'created_by', 
         'created_at',
-        'trading_open',
+        'spread_bidding_close_trading_open',
         'trading_close'
     ]
     search_fields = ['premise', 'created_by__username']
     readonly_fields = [
         'created_at', 
         'updated_at', 
+        'status',  # Make status read-only to prevent direct changes
+        'final_spread_low',
+        'final_spread_high',
+        'market_maker',
+        'market_maker_spread_low',
+        'market_maker_spread_high',
         'is_spread_bidding_active', 
         'is_trading_active', 
         'can_be_settled', 
@@ -41,14 +47,23 @@ class MarketAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Market Information', {
-            'fields': ('premise', 'unit_price', 'initial_spread', 'created_by', 'status')
+            'fields': ('premise', 'unit_price', 'initial_spread', 'created_by')
+        }),
+        ('Market Status (Read-Only)', {
+            'fields': ('status',),
+            'description': 'Status cannot be changed directly. Use the auto-activate action or manual_activate API endpoint.',
+            'classes': ('collapse',)
+        }),
+        ('Market Maker Information (Set by Activation)', {
+            'fields': ('market_maker', 'market_maker_spread_low', 'market_maker_spread_high'),
+            'classes': ('collapse',)
         }),
         ('Final Spread (Set through bidding)', {
             'fields': ('final_spread_low', 'final_spread_high', 'current_spread_display'),
             'classes': ('collapse',)
         }),
         ('Timing', {
-            'fields': ('spread_bidding_open', 'spread_bidding_close', 'trading_open', 'trading_close')
+            'fields': ('spread_bidding_open', 'spread_bidding_close_trading_open', 'trading_close')
         }),
         ('Settlement', {
             'fields': ('outcome',)
@@ -159,6 +174,27 @@ class MarketAdmin(admin.ModelAdmin):
             self.message_user(request, full_message, level='warning')
     
     auto_activate_selected_markets.short_description = "Auto-activate selected markets"
+    
+    def save_model(self, request, obj, form, change):
+        """Override save to prevent direct status changes"""
+        if change:  # If this is an update, not a new creation
+            # Get the original object from database
+            original = Market.objects.get(pk=obj.pk)
+            
+            # Check if status was changed
+            if original.status != obj.status:
+                # Restore original status
+                obj.status = original.status
+                
+                # Add message to admin
+                from django.contrib import messages
+                messages.warning(
+                    request,
+                    f"Status change prevented. Current status: {obj.status}. "
+                    f"Use the 'Auto-activate selected markets' action or the API to properly activate markets."
+                )
+        
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(SpreadBid)

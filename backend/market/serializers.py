@@ -38,10 +38,12 @@ class MarketSerializer(serializers.ModelSerializer):
             'current_spread_display',
             'created_by',
             'created_by_username',
+            'market_maker',
+            'market_maker_spread_low',
+            'market_maker_spread_high',
             'status',
             'spread_bidding_open',
-            'spread_bidding_close',
-            'trading_open',
+            'spread_bidding_close_trading_open',
             'trading_close',
             'outcome',
             'is_spread_bidding_active',
@@ -126,26 +128,20 @@ class MarketCreateSerializer(serializers.ModelSerializer):
             'unit_price',
             'initial_spread',
             'spread_bidding_open',
-            'spread_bidding_close',
-            'trading_open',
+            'spread_bidding_close_trading_open',
             'trading_close'
         ]
     
     def validate(self, data):
         """Validate market timing"""
-        if data['spread_bidding_open'] >= data['spread_bidding_close']:
+        if data['spread_bidding_open'] >= data['spread_bidding_close_trading_open']:
             raise serializers.ValidationError(
-                "Spread bidding close must be after spread bidding open"
+                "Spread bidding close & trading open must be after spread bidding open"
             )
         
-        if data['trading_open'] >= data['trading_close']:
+        if data['spread_bidding_close_trading_open'] >= data['trading_close']:
             raise serializers.ValidationError(
-                "Trading close must be after trading open"
-            )
-        
-        if data['spread_bidding_close'] > data['trading_open']:
-            raise serializers.ValidationError(
-                "Trading open must be after spread bidding close"
+                "Trading close must be after spread bidding close & trading open"
             )
         
         if data['initial_spread'] <= 0:
@@ -206,6 +202,11 @@ class MarketUpdateSerializer(serializers.ModelSerializer):
 class MarketEditSerializer(serializers.ModelSerializer):
     """Comprehensive serializer for admin editing of markets"""
     
+    # Add explicit field definitions for better type handling
+    unit_price = serializers.FloatField()
+    initial_spread = serializers.IntegerField()
+    outcome = serializers.IntegerField(required=False, allow_null=True)
+    
     class Meta:
         model = Market
         fields = [
@@ -213,8 +214,7 @@ class MarketEditSerializer(serializers.ModelSerializer):
             'unit_price',
             'initial_spread',
             'spread_bidding_open',
-            'spread_bidding_close',
-            'trading_open',
+            'spread_bidding_close_trading_open',
             'trading_close',
             'status',
             'outcome'
@@ -229,8 +229,7 @@ class MarketEditSerializer(serializers.ModelSerializer):
         unit_price = data.get('unit_price', instance.unit_price)
         initial_spread = data.get('initial_spread', instance.initial_spread)
         spread_bidding_open = data.get('spread_bidding_open', instance.spread_bidding_open)
-        spread_bidding_close = data.get('spread_bidding_close', instance.spread_bidding_close)
-        trading_open = data.get('trading_open', instance.trading_open)
+        spread_bidding_close_trading_open = data.get('spread_bidding_close_trading_open', instance.spread_bidding_close_trading_open)
         trading_close = data.get('trading_close', instance.trading_close)
         new_status = data.get('status', instance.status)
         
@@ -242,19 +241,14 @@ class MarketEditSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Initial spread must be greater than 0")
         
         # Timing validations
-        if spread_bidding_open >= spread_bidding_close:
+        if spread_bidding_open >= spread_bidding_close_trading_open:
             raise serializers.ValidationError(
-                "Spread bidding close must be after spread bidding open"
+                "Spread bidding close & trading open must be after spread bidding open"
             )
         
-        if trading_open >= trading_close:
+        if spread_bidding_close_trading_open >= trading_close:
             raise serializers.ValidationError(
-                "Trading close must be after trading open"
-            )
-        
-        if spread_bidding_close > trading_open:
-            raise serializers.ValidationError(
-                "Trading open must be after spread bidding close"
+                "Trading close must be after spread bidding close & trading open"
             )
         
         # Business rule validations based on current state
@@ -274,22 +268,22 @@ class MarketEditSerializer(serializers.ModelSerializer):
                 )
         
         # If market is past spread bidding phase, don't allow changing bidding times
-        if now > instance.spread_bidding_close:
+        if now > instance.spread_bidding_close_trading_open:
             if (data.get('spread_bidding_open') and 
                 data['spread_bidding_open'] != instance.spread_bidding_open):
                 raise serializers.ValidationError(
                     "Cannot change spread bidding times after bidding has closed"
                 )
             
-            if (data.get('spread_bidding_close') and 
-                data['spread_bidding_close'] != instance.spread_bidding_close):
+            if (data.get('spread_bidding_close_trading_open') and 
+                data['spread_bidding_close_trading_open'] != instance.spread_bidding_close_trading_open):
                 raise serializers.ValidationError(
                     "Cannot change spread bidding times after bidding has closed"
                 )
         
         # Status transition validation
         valid_transitions = {
-            'CREATED': ['OPEN'],
+            'CREATED': ['OPEN'],  # Allow only through proper activation
             'OPEN': ['CLOSED'],
             'CLOSED': ['SETTLED'],
             'SETTLED': []
@@ -299,6 +293,12 @@ class MarketEditSerializer(serializers.ModelSerializer):
             if new_status not in valid_transitions.get(instance.status, []):
                 raise serializers.ValidationError(
                     f"Cannot transition from {instance.status} to {new_status}"
+                )
+            
+            # Special validation for CREATED -> OPEN transition
+            if instance.status == 'CREATED' and new_status == 'OPEN':
+                raise serializers.ValidationError(
+                    "Cannot directly set market to OPEN status. Use the manual_activate endpoint to properly activate the market."
                 )
         
         # Outcome validation
@@ -359,7 +359,7 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
         
         # Check if spread bidding window is active
         now = timezone.now()
-        if not (market.spread_bidding_open <= now <= market.spread_bidding_close):
+        if not (market.spread_bidding_open <= now <= market.spread_bidding_close_trading_open):
             raise serializers.ValidationError(
                 "Spread bidding is not currently active for this market"
             )

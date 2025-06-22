@@ -98,7 +98,12 @@ export const shouldShowAutoActivateButton = (market) => {
   if (!market) return false;
   
   const status = market.status?.toLowerCase();
-  return status === 'created' || status === 'pending';
+  const isCreatedOrPending = status === 'created' || status === 'pending';
+  
+  // Check if there's at least one bid from a non-admin user
+  const hasBid = market.best_spread_bid && market.best_spread_bid.user !== market.created_by_username;
+  
+  return isCreatedOrPending && hasBid;
 };
 
 /**
@@ -106,17 +111,16 @@ export const shouldShowAutoActivateButton = (market) => {
  * @param {string} status - Trade status
  * @returns {string} - Display text
  */
-export const getTradeStatusText = (status) => {
-  switch (status?.toLowerCase()) {
-    case 'pending':
-      return 'Pending';
-    case 'filled':
-      return 'Filled';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'expired':
-      return 'Expired';
-    default:
-      return 'Unknown';
+export const getTradeStatusText = (market) => {
+  if (!market.is_trading_active) return 'Trading Closed';
+  if (market.user_trade) {
+    return `${market.user_trade.position} Position (${market.user_trade.quantity} units @ $${market.user_trade.price})`;
   }
+  return 'No Position';
+};
+
+export const getProfitLossClass = (profitLoss) => {
+  if (profitLoss > 0) return 'profit';
+  if (profitLoss < 0) return 'loss';
+  return 'neutral';
 }; 
