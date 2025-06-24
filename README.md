@@ -392,4 +392,56 @@ This document provides detailed documentation for all major functions and utilit
 - Forms must include validation and user feedback
 - Performance impact must be minimal
 
-This documentation provides a complete reference for understanding and extending the mock trading application's functionality and architecture. 
+This documentation provides a complete reference for understanding and extending the mock trading application's functionality and architecture.
+
+## 🔄 CI/CD Pipelines
+
+We maintain two separate GitHub Actions workflows for optimal development and deployment:
+
+### 🧪 Test Pipeline (`.github/workflows/test-suite.yml`)
+**Purpose:** Comprehensive testing of all application components
+- **Triggers:** 
+  - All pushes to `main`, `dev`, and `feature/*` branches
+  - All pull requests to `main` and `dev`
+  - Manual trigger available
+- **What it tests:**
+  - 🐍 Backend Django tests with PostgreSQL
+  - ⚛️ Frontend React tests with coverage
+  - 🔗 Full-stack integration tests
+  - 🏠 Local environment validation
+  - 🎯 Spread bidding mechanics (with no upper limit)
+  - 📊 Database operations and API endpoints
+
+### 🚀 Deployment Pipeline (`.github/workflows/azure-deploy.yml`)
+**Purpose:** Streamlined deployment to Azure Web App
+- **Triggers:**
+  - Pushes to `main` branch (after tests pass)
+  - Manual deployment with optional force flag
+- **What it does:**
+  - 🔍 Checks test status before deployment
+  - 🏗️ Builds production frontend and backend
+  - 📦 Optimizes deployment package
+  - 🚀 Deploys to Azure Web App
+  - 🔍 Runs post-deployment health checks
+  - 🧪 Validates production API functionality
+
+**Safety Features:**
+- Deployment only proceeds if tests pass
+- Manual override available with `force_deploy` flag
+- Health checks ensure successful deployment
+- Post-deployment API validation
+
+## 🌟 Features
+
+### Core Trading Functionality
+- **Spread Bidding**: Competitive bidding system with no upper limit restrictions
+- **Market Creation**: Admin-controlled prediction markets
+- **Real-time Trading**: Live market updates and trade execution
+- **User Management**: Registration, authentication, and profile management
+
+### Technical Features
+- **Django REST API**: Robust backend with comprehensive API endpoints
+- **React Frontend**: Modern, responsive user interface
+- **PostgreSQL Database**: Reliable data persistence (Azure/local SQLite for dev)
+- **Azure Deployment**: Production-ready cloud hosting
+- **Comprehensive Testing**: Multi-layer test coverage with CI/CD 

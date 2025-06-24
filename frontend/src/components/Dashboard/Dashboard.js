@@ -78,7 +78,7 @@ const Dashboard = () => {
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="header-left">
-                    <h1>Market Dashboard</h1>
+                <h1>Market Dashboard</h1>
                     {userData && (
                         <div className="user-summary">
                             <span className="welcome-text">Welcome, <strong>{userData.username}</strong>!</span>
@@ -124,11 +124,11 @@ const Dashboard = () => {
                 {markets.filter(m => m.status === 'OPEN').length > 0 && (
                     <div className="market-status-section">
                         <h2>🔥 Active Markets</h2>
-                        <div className="markets-grid">
+            <div className="markets-grid">
                             {markets.filter(m => m.status === 'OPEN').map(market => (
                                 <div key={market.id} className="market-card active">
                                     <div className="market-header">
-                                        <h3>{market.premise}</h3>
+                        <h3>{market.premise}</h3>
                                         <span className="status-badge status-active">ACTIVE</span>
                                     </div>
                                     
@@ -221,21 +221,21 @@ const Dashboard = () => {
                                                 <span>Best bid: {market.best_spread_bid.spread_width} width by {market.best_spread_bid.user}</span>
                                             </div>
                                         )}
-                                    </div>
-                                    
+                        </div>
+                        
                                     {market.is_spread_bidding_active && (
                                         <div className="spread-bidding-section">
                                             <p className="bid-prompt">Compete to become market maker!</p>
-                                            <button 
+                                <button 
                                                 onClick={() => navigate('/trading')}
                                                 className="btn btn-primary btn-small"
-                                            >
+                                >
                                                 Place Spread Bid
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ))}
                         </div>
                     </div>
                 )}

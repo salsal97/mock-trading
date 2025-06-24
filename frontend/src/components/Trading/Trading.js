@@ -23,6 +23,11 @@ const Trading = () => {
         spreadLow: '',
         spreadHigh: ''
     });
+    const [showSpreadBidForm, setShowSpreadBidForm] = useState(false);
+    const [spreadBidForm, setSpreadBidForm] = useState({
+        spreadLow: '',
+        spreadHigh: ''
+    });
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -152,8 +157,8 @@ const Trading = () => {
             return;
         }
 
-        if (spreadLow < 0 || spreadHigh > 100) {
-            setError('Spread values must be between 0 and 100');
+        if (spreadLow < 0) {
+            setError('Spread values must be positive');
             return;
         }
 
@@ -178,6 +183,60 @@ const Trading = () => {
             }
             handleApiError(error);
             setError('Failed to set market maker spread');
+        }
+    };
+
+    const handleSpreadBidSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!selectedMarket) {
+            setError('Please select a market first');
+            return;
+        }
+
+        const spreadLow = parseFloat(spreadBidForm.spreadLow);
+        const spreadHigh = parseFloat(spreadBidForm.spreadHigh);
+
+        if (spreadLow >= spreadHigh) {
+            setError('Spread high must be greater than spread low');
+            return;
+        }
+
+        if (spreadLow < 0) {
+            setError('Spread values must be positive');
+            return;
+        }
+
+        // Calculate spread width
+        const spreadWidth = spreadHigh - spreadLow;
+        
+        // Check if this is a competitive bid (narrower than initial spread)
+        if (spreadWidth >= selectedMarket.initial_spread) {
+            setError(`Your spread width (${spreadWidth}) must be narrower than the initial spread (${selectedMarket.initial_spread}) to be competitive.`);
+            return;
+        }
+
+        try {
+            setError('');
+            
+            const response = await apiPost(`/api/market/${selectedMarket.id}/place_spread_bid/`, {
+                spread_low: spreadLow,
+                spread_high: spreadHigh
+            });
+
+            alert(`Spread bid placed successfully! Spread: $${spreadLow} - $${spreadHigh} (Width: ${spreadWidth})`);
+            setShowSpreadBidForm(false);
+            setSpreadBidForm({ spreadLow: '', spreadHigh: '' });
+            fetchTradingData(); // Refresh data
+            
+        } catch (error) {
+            console.error('Error placing spread bid:', error);
+            if (shouldRedirectToLogin(error)) {
+                navigate('/auth');
+                return;
+            }
+            const errorMessage = handleApiError(error);
+            setError(`Error placing spread bid: ${errorMessage}`);
         }
     };
 
@@ -282,6 +341,124 @@ const Trading = () => {
                                     </div>
                                 </div>
 
+                                {/* Spread Bidding Section */}
+                                {selectedMarket.status === 'CREATED' && selectedMarket.is_spread_bidding_active && (
+                                    <div className="spread-bidding-section">
+                                        <h3>🎯 Compete to Become Market Maker</h3>
+                                        <p>Place a spread bid to compete for the right to become the market maker. The bid with the narrowest spread wins!</p>
+                                        
+                                        {/* Current best bid display */}
+                                        <div className="best-bid-display">
+                                            {selectedMarket.best_spread_bid ? (
+                                                <div className="current-best-bid">
+                                                    <h4>Current Leading Bid:</h4>
+                                                    <div className="bid-details">
+                                                        <span className="bid-user">👤 {selectedMarket.best_spread_bid.user}</span>
+                                                        <span className="bid-spread">📊 ${selectedMarket.best_spread_bid.spread_low} - ${selectedMarket.best_spread_bid.spread_high}</span>
+                                                        <span className="bid-width">📏 Width: {selectedMarket.best_spread_bid.spread_width}</span>
+                                                    </div>
+                                                    <p className="beat-bid-text">Place a bid with a narrower spread to take the lead!</p>
+                                                </div>
+                                            ) : (
+                                                <div className="no-bids">
+                                                    <p>No bids yet! Be the first to place a spread bid.</p>
+                                                    <p>Initial spread width: <strong>{selectedMarket.initial_spread}</strong> - beat this to win!</p>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="bidding-timing">
+                                            <p>⏰ Bidding closes: <strong>{formatDateTime(selectedMarket.spread_bidding_close_trading_open)}</strong></p>
+                                        </div>
+                                        
+                                        {!showSpreadBidForm ? (
+                                            <button 
+                                                onClick={() => setShowSpreadBidForm(true)}
+                                                className="btn btn-primary"
+                                            >
+                                                Place Spread Bid
+                                            </button>
+                                        ) : (
+                                            <form onSubmit={handleSpreadBidSubmit} className="spread-bid-form">
+                                                <div className="form-explanation">
+                                                    <p><strong>How it works:</strong> Enter your bid for the spread you're willing to make the market at. The bidder with the narrowest spread (smallest difference between high and low) wins and becomes the market maker.</p>
+                                                </div>
+                                                
+                                                <div className="form-row">
+                                                    <div className="form-group">
+                                                        <label>Spread Low (Short/Sell Price):</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            // max="100"
+                                                            step="0.01"
+                                                            value={spreadBidForm.spreadLow}
+                                                            onChange={(e) => setSpreadBidForm({
+                                                                ...spreadBidForm,
+                                                                spreadLow: e.target.value
+                                                            })}
+                                                            placeholder="e.g., 35.00"
+                                                            required
+                                                        />
+                                                        <small>Price at which you'll buy SHORT positions</small>
+                                                    </div>
+                                                    <div className="form-group">
+                                                        <label>Spread High (Long/Buy Price):</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            // max="100"
+                                                            step="0.01"
+                                                            value={spreadBidForm.spreadHigh}
+                                                            onChange={(e) => setSpreadBidForm({
+                                                                ...spreadBidForm,
+                                                                spreadHigh: e.target.value
+                                                            })}
+                                                            placeholder="e.g., 65.00"
+                                                            required
+                                                        />
+                                                        <small>Price at which you'll sell LONG positions</small>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Real-time spread width calculation */}
+                                                {spreadBidForm.spreadLow && spreadBidForm.spreadHigh && (
+                                                    <div className="spread-preview">
+                                                        <div className="preview-item">
+                                                            <strong>Your Spread Width: {(parseFloat(spreadBidForm.spreadHigh) - parseFloat(spreadBidForm.spreadLow)).toFixed(2)}</strong>
+                                                        </div>
+                                                        <div className="preview-item">
+                                                            <span>Target to beat: {selectedMarket.best_spread_bid ? selectedMarket.best_spread_bid.spread_width : selectedMarket.initial_spread}</span>
+                                                        </div>
+                                                        {parseFloat(spreadBidForm.spreadHigh) - parseFloat(spreadBidForm.spreadLow) < (selectedMarket.best_spread_bid ? selectedMarket.best_spread_bid.spread_width : selectedMarket.initial_spread) ? (
+                                                            <div className="preview-success">✅ Competitive bid! This would be the new leading bid.</div>
+                                                        ) : (
+                                                            <div className="preview-warning">⚠️ Not competitive. Make your spread narrower to win.</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="form-actions">
+                                                    <button type="submit" className="btn btn-primary">
+                                                        Submit Spread Bid
+                                                    </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => {
+                                                            setShowSpreadBidForm(false);
+                                                            setSpreadBidForm({ spreadLow: '', spreadHigh: '' });
+                                                            setError('');
+                                                        }}
+                                                        className="btn btn-secondary"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* Market Maker Section */}
                                 {selectedMarket.status === 'OPEN' && !selectedMarket.market_maker && (
                                     <div className="market-maker-section">
@@ -303,7 +480,6 @@ const Trading = () => {
                                                         <input
                                                             type="number"
                                                             min="0"
-                                                            max="100"
                                                             step="0.01"
                                                             value={marketMakerForm.spreadLow}
                                                             onChange={(e) => setMarketMakerForm({
@@ -318,7 +494,6 @@ const Trading = () => {
                                                         <input
                                                             type="number"
                                                             min="0"
-                                                            max="100"
                                                             step="0.01"
                                                             value={marketMakerForm.spreadHigh}
                                                             onChange={(e) => setMarketMakerForm({

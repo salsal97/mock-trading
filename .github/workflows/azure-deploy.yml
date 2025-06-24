@@ -1,115 +1,281 @@
-name: Deploy to Azure
+name: 🚀 Deploy to Azure
 
 on:
   push:
     branches:
       - main
-      - dev
+  workflow_dispatch:  # Allow manual deployment
+    inputs:
+      force_deploy:
+        description: 'Force deployment without waiting for tests'
+        required: false
+        default: false
+        type: boolean
 
 env:
-  AZURE_WEBAPP_NAME: salonis-mock-trading-app    # Your Azure app name
+  AZURE_WEBAPP_NAME: salonis-mock-trading-app
   AZURE_WEBAPP_PACKAGE_PATH: '.'
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
 
 jobs:
-  build-and-deploy:
+  check-tests:
+    name: 🔍 Check Test Status
     runs-on: ubuntu-latest
+    if: github.event.inputs.force_deploy != 'true'
+    outputs:
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: 🔍 Check Latest Test Run
+      id: check
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const sha = context.sha;
+          
+          try {
+            // Get the latest test suite workflow run for this commit
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: 'test-suite.yml',
+              head_sha: sha,
+              per_page: 1
+            });
+            
+            if (runs.data.workflow_runs.length === 0) {
+              console.log('No test runs found for this commit');
+              core.setOutput('should_deploy', 'false');
+              return;
+            }
+            
+            const testRun = runs.data.workflow_runs[0];
+            console.log(`Latest test run: ${testRun.status} - ${testRun.conclusion}`);
+            
+            if (testRun.conclusion === 'success') {
+              console.log('✅ Tests passed, proceeding with deployment');
+              core.setOutput('should_deploy', 'true');
+            } else {
+              console.log('❌ Tests failed or not completed');
+              core.setOutput('should_deploy', 'false');
+            }
+          } catch (error) {
+            console.log('Error checking test status:', error.message);
+            core.setOutput('should_deploy', 'false');
+          }
 
-    # Add PostgreSQL service for testing
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: test_mock_trading
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+  build-and-deploy:
+    name: 🏗️ Build & Deploy
+    runs-on: ubuntu-latest
+    needs: [check-tests]
+    if: |
+      always() && 
+      (needs.check-tests.outputs.should_deploy == 'true' || 
+       github.event.inputs.force_deploy == 'true' ||
+       needs.check-tests.result == 'skipped')
 
     steps:
-    - uses: actions/checkout@v4
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: 🐍 Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
 
-    - name: Set up Node
+    - name: 📦 Set up Node
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install Python dependencies
+    - name: 📦 Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
 
-    - name: Run Django Migrations
+    - name: 🔧 Pre-deployment Health Check
       run: |
         cd backend
-        python manage.py makemigrations
-        python manage.py migrate
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
+        python -c "
+        import django
+        import os
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
+        os.environ.setdefault('SECRET_KEY', 'temp-key-for-check')
+        os.environ.setdefault('DEBUG', 'False')
+        django.setup()
+        
+        from django.core.management import execute_from_command_line
+        print('✓ Django configuration is valid')
+        
+        # Test critical imports
+        from market.models import Market, SpreadBid, Trade
+        from accounts.models import UserProfile
+        print('✓ All models import successfully')
+        
+        from market.views import MarketViewSet
+        from accounts.views import UserProfileView
+        print('✓ All views import successfully')
+        "
 
-    - name: Test Database Operations
-      run: |
-        cd backend
-        python -c "import os; import django; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings'); django.setup(); from django.contrib.auth.models import User; print('Testing database connection...'); user_count = User.objects.count(); print(f'Database connection successful! User count: {user_count}')"
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: Build React & Copy to Django
+    - name: 🏗️ Build Production Frontend
       run: |
         cd frontend
-        npm ci --production
+        npm ci --production --prefer-offline --no-audit
         CI=false NODE_ENV=production npm run build
-        cd ..
-        mkdir -p backend/static backend/templates
-        cp -r frontend/build/* backend/static/
-        cp frontend/build/index.html backend/templates/
+        echo "✓ Frontend build completed"
 
-    - name: Collect Django Static Files
+    - name: 📁 Prepare Django Static Files
       run: |
         cd backend
-        python manage.py collectstatic --noinput
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: False
+        mkdir -p static templates
+        cp -r ../frontend/build/* static/
+        cp ../frontend/build/index.html templates/
+        echo "✓ Static files prepared"
 
-    - name: Deploy to Azure Web App
+    - name: 🧹 Clean Build Artifacts
+      run: |
+        # Remove node_modules to reduce deployment size
+        rm -rf frontend/node_modules
+        rm -rf frontend/.git
+        
+        # Remove Python cache files
+        find backend -name "*.pyc" -delete
+        find backend -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+        
+        # Remove development files
+        rm -f backend/db.sqlite3
+        rm -rf backend/.pytest_cache
+        
+        echo "✓ Build artifacts cleaned"
+
+    - name: 📦 Create Deployment Package
+      run: |
+        echo "=== Deployment Package Contents ===" 
+        echo "Backend files:"
+        find backend -type f -name "*.py" | head -10
+        echo "Static files:"
+        find backend/static -type f | head -5
+        echo "Templates:"
+        find backend/templates -type f
+        echo "Requirements:"
+        cat backend/requirements.txt | head -5
+        echo "================================="
+
+    - name: 🚀 Deploy to Azure Web App
       uses: azure/webapps-deploy@v2
       with:
         app-name: ${{ env.AZURE_WEBAPP_NAME }}
         publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         package: backend
 
-    - name: Deployment Success
+    - name: ⏱️ Wait for Deployment
       run: |
-        echo "Deployment completed successfully!"
-        echo "App URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        echo "⏱️ Waiting for deployment to stabilize..."
+        sleep 30
+
+    - name: 🔍 Post-Deployment Health Check
+      run: |
+        echo "🔍 Testing deployment health..."
+        
+        max_attempts=10
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt/$max_attempts..."
+          
+          # Test basic connectivity
+          if curl -f -s -o /dev/null --max-time 30 "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/"; then
+            echo "✅ App is responding!"
+            
+            # Test admin login (optional - may fail if admin doesn't exist yet)
+            echo "Testing admin API access..."
+            curl -s -X POST "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/auth/login/" \
+              -H "Content-Type: application/json" \
+              -d '{"username": "admin", "password": "admin123"}' \
+              && echo "✅ Admin API accessible" \
+              || echo "ℹ️ Admin API test failed (may be normal for fresh deployment)"
+            
+            break
+          else
+            echo "⏳ App not ready yet..."
+            if [ $attempt -eq $max_attempts ]; then
+              echo "❌ Deployment health check failed"
+              exit 1
+            fi
+            sleep 10
+          fi
+          
+          attempt=$((attempt + 1))
+        done
+
+    - name: 🎉 Deployment Success
+      run: |
+        echo "
+        ╔══════════════════════════════════════════════════════════════════╗
+        ║                    🎉 DEPLOYMENT SUCCESSFUL! 🎉                  ║
+        ╠══════════════════════════════════════════════════════════════════╣
+        ║                                                                  ║
+        ║  🌐 Application URL:                                              ║
+        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net                       ║
+        ║                                                                  ║
+        ║  🔗 Admin Panel:                                                  ║
+        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/                ║
+        ║                                                                  ║
+        ║  📚 API Documentation:                                            ║
+        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/                  ║
+        ║                                                                  ║
+        ║  ✅ Features Deployed:                                            ║
+        ║     • Spread Bidding (no upper limit)                           ║
+        ║     • Market Creation & Management                               ║
+        ║     • User Authentication & Trading                              ║
+        ║     • Real-time Market Updates                                   ║
+        ║     • Admin Dashboard                                            ║
+        ║                                                                  ║
+        ╚══════════════════════════════════════════════════════════════════╝
+        " >> $GITHUB_STEP_SUMMARY
+
+  post-deployment-tests:
+    name: 🧪 Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    if: success()
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 📦 Install Test Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: 🌐 Test Production API
+      run: |
+        echo "🧪 Running production API tests..."
+        python test_trading_api.py
+      env:
+        API_BASE_URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
+
+    - name: 📊 Generate Deployment Report
+      if: always()
+      run: |
+        echo "# 🚀 Deployment Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Deployment Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Application URL:** https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
