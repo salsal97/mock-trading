@@ -63,7 +63,7 @@ jobs:
     - name: 🧪 Run Django Unit Tests
       run: |
         cd backend
-        python manage.py test --verbosity=2 --parallel --keepdb
+        python manage.py test --verbosity=2 --parallel
       env:
         SECRET_KEY: test-secret-key-for-github-actions
         DB_NAME: test_mock_trading
@@ -76,24 +76,46 @@ jobs:
     - name: 🏗️ Test Database Models
       run: |
         cd backend
+        # Ensure fresh database state
+        python manage.py migrate --run-syncdb
+        python manage.py flush --noinput || true
         python manage.py shell << 'EOF'
         from django.contrib.auth.models import User
         from market.models import Market, SpreadBid, Trade
         from accounts.models import UserProfile
         from django.utils import timezone
         from datetime import timedelta
+        import uuid
         
         print("=== Testing Model Creation ===")
         
-        # Test user creation
-        user = User.objects.create_user('testuser', 'test@example.com', 'testpass')
-        profile = UserProfile.objects.create(user=user, balance=1000.0)
-        print(f"✓ Created user: {user.username}")
+        # Use unique username to avoid conflicts
+        username = f"testuser_{uuid.uuid4().hex[:8]}"
+        
+        # Test user creation with get_or_create for safety
+        user, created = User.objects.get_or_create(
+            username=username,
+            defaults={
+                'email': f'{username}@example.com',
+                'first_name': 'Test',
+                'last_name': 'User'
+            }
+        )
+        if created:
+            user.set_password('testpass')
+            user.save()
+        
+        # Test profile creation
+        profile, created = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={'balance': 1000.0}
+        )
+        print(f"✓ Created user: {user.username} (new: {created})")
         
         # Test market creation
         now = timezone.now()
         market = Market.objects.create(
-            premise="Test market premise",
+            premise=f"Test market premise {uuid.uuid4().hex[:8]}",
             unit_price=1.0,
             initial_spread=20,
             spread_bidding_open=now - timedelta(hours=1),
@@ -175,7 +197,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
-          POSTGRES_DB: test_mock_trading
+          POSTGRES_DB: test_integration_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -221,7 +243,7 @@ jobs:
         python manage.py collectstatic --noinput
       env:
         SECRET_KEY: test-secret-key-for-github-actions
-        DB_NAME: test_mock_trading
+        DB_NAME: test_integration_db
         DB_USER: postgres
         DB_PASSWORD: postgres
         DB_HOST: localhost
@@ -277,7 +299,7 @@ jobs:
         EOF
       env:
         SECRET_KEY: test-secret-key-for-github-actions
-        DB_NAME: test_mock_trading
+        DB_NAME: test_integration_db
         DB_USER: postgres
         DB_PASSWORD: postgres
         DB_HOST: localhost
@@ -302,7 +324,7 @@ jobs:
         done
       env:
         SECRET_KEY: test-secret-key-for-github-actions
-        DB_NAME: test_mock_trading
+        DB_NAME: test_integration_db
         DB_USER: postgres
         DB_PASSWORD: postgres
         DB_HOST: localhost
@@ -399,7 +421,7 @@ jobs:
         EOF
       env:
         SECRET_KEY: test-secret-key-for-github-actions
-        DB_NAME: test_mock_trading
+        DB_NAME: test_integration_db
         DB_USER: postgres
         DB_PASSWORD: postgres
         DB_HOST: localhost
