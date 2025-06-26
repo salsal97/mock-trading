@@ -296,7 +296,10 @@ class BusinessRulesTestCase(TestCase):
             # Test direct model activation should fail due to no bids
             result = self.market.auto_activate_market()
             self.assertFalse(result['success'], "Model activation should fail without bids")
-            self.assertIn("No bids available", result['reason'])
+            self.assertIn("Market is not eligible for auto-activation", result['reason'])
+            
+            # Verify the details show that bids are required
+            self.assertFalse(result['details']['has_bids'], "Should show no bids available")
             
             # Verify market is still CREATED
             self.market.refresh_from_db()
