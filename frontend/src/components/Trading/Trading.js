@@ -210,9 +210,9 @@ const Trading = () => {
         // Calculate spread width
         const spreadWidth = spreadHigh - spreadLow;
         
-        // Check if this is a competitive bid (narrower than initial spread)
-        if (spreadWidth >= selectedMarket.initial_spread) {
-            setError(`Your spread width (${spreadWidth}) must be narrower than the initial spread (${selectedMarket.initial_spread}) to be competitive.`);
+        // Check if this is a competitive bid (narrower than current best, if any)
+        if (selectedMarket.best_spread_bid && spreadWidth >= selectedMarket.best_spread_bid.spread_width) {
+            setError(`Your spread width (${spreadWidth}) must be narrower than the current best bid width (${selectedMarket.best_spread_bid.spread_width}) to be competitive.`);
             return;
         }
 
@@ -361,7 +361,7 @@ const Trading = () => {
                                                 </div>
                                             ) : (
                                                 <div className="no-bids">
-                                                    <p>No bids yet! Be the first to place a spread bid.</p>
+                                                    <p><strong>🎯 Be the First Bidder!</strong></p>
                                                     <p>Initial spread width: <strong>{selectedMarket.initial_spread}</strong> - beat this to win!</p>
                                                 </div>
                                             )}
@@ -427,13 +427,19 @@ const Trading = () => {
                                                         <div className="preview-item">
                                                             <strong>Your Spread Width: {(parseFloat(spreadBidForm.spreadHigh) - parseFloat(spreadBidForm.spreadLow)).toFixed(2)}</strong>
                                                         </div>
-                                                        <div className="preview-item">
-                                                            <span>Target to beat: {selectedMarket.best_spread_bid ? selectedMarket.best_spread_bid.spread_width : selectedMarket.initial_spread}</span>
-                                                        </div>
-                                                        {parseFloat(spreadBidForm.spreadHigh) - parseFloat(spreadBidForm.spreadLow) < (selectedMarket.best_spread_bid ? selectedMarket.best_spread_bid.spread_width : selectedMarket.initial_spread) ? (
-                                                            <div className="preview-success">✅ Competitive bid! This would be the new leading bid.</div>
+                                                        {selectedMarket.best_spread_bid ? (
+                                                            <>
+                                                                <div className="preview-item">
+                                                                    <span>Target to beat: {selectedMarket.best_spread_bid.spread_width}</span>
+                                                                </div>
+                                                                {parseFloat(spreadBidForm.spreadHigh) - parseFloat(spreadBidForm.spreadLow) < selectedMarket.best_spread_bid.spread_width ? (
+                                                                    <div className="preview-success">✅ Competitive bid! This would be the new leading bid.</div>
+                                                                ) : (
+                                                                    <div className="preview-warning">⚠️ Not competitive. Make your spread narrower to win.</div>
+                                                                )}
+                                                            </>
                                                         ) : (
-                                                            <div className="preview-warning">⚠️ Not competitive. Make your spread narrower to win.</div>
+                                                            <div className="preview-success">🎯 First bid! This will set the initial market spread.</div>
                                                         )}
                                                     </div>
                                                 )}

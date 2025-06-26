@@ -22,13 +22,19 @@ def auto_activate_eligible_markets():
     """
     Helper function to auto-activate markets that are eligible.
     This implements lazy evaluation - markets are activated when accessed.
+    
+    Business rule: activate when there has been at least one bid from one user 
+    and the spread bidding window is closed
     """
+    # Get markets that have bids and bidding window is closed
     eligible_markets = Market.objects.filter(
         status='CREATED',
         spread_bidding_close_trading_open__lt=timezone.now(),
-        final_spread_low__isnull=True, ## TODO: Fix this, needs to ask for values if unset
+        final_spread_low__isnull=True,
         final_spread_high__isnull=True
-    )
+    ).exclude(
+        spread_bids__isnull=True  # Must have at least one bid
+    ).distinct()
     
     activated_count = 0
     for market in eligible_markets:
@@ -88,6 +94,11 @@ class MarketViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Set the created_by field to the current user when creating a market"""
+        # Rule 9: Only admins can create markets
+        if not (self.request.user.is_staff or self.request.user.is_superuser):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only administrators can create markets")
+        
         serializer.save(created_by=self.request.user)
     
     def create(self, request, *args, **kwargs):
@@ -208,6 +219,8 @@ class MarketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsAdminUser])
     def manual_activate(self, request, pk=None):
         """Manually activate a market (admin only) - allows admin override"""
+        from django.utils import timezone
+        
         market = self.get_object()
         
         # Allow admin override - check basic eligibility only
@@ -223,46 +236,64 @@ class MarketViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Use the existing auto_activate_market method but bypass timing check
-        # by temporarily modifying the market's bidding close time if needed
-        original_close_time = market.spread_bidding_close
-        admin_override = not market.should_auto_activate
+        # Rule 1b: Admin can forcefully activate market using auto activate button
+        # This is an admin override that bypasses the "at least one bid" requirement
+        
+        # Use the existing auto_activate_market method but bypass timing/bid check if needed
+        original_close_time = market.spread_bidding_close_trading_open
+        now = timezone.now()
+        has_bids = market.spread_bids.exists()
+        
+        # Admin can always activate if bidding window is closed OR force early activation
+        bidding_closed = now >= market.spread_bidding_close_trading_open
+        admin_override = not bidding_closed or not has_bids
         
         try:
-            if admin_override:
-                # Temporarily set bidding close to past time for admin override
-                from django.utils import timezone
-                market.spread_bidding_close = timezone.now() - timezone.timedelta(minutes=1)
-                market.save()
-            
-            result = market.auto_activate_market()
-            
-            if result['success']:
-                # Keep the original close time unless admin changed it intentionally
-                if admin_override:
-                    market.spread_bidding_close = original_close_time
-                    market.save()
-                
-                serializer = MarketSerializer(market)
+            if admin_override and not has_bids:
+                # New rule: No default spread, must error out and ask for initial bid
                 return Response({
-                    'message': f"{result['reason']} (Admin Override)" if admin_override else result['reason'],
-                    'details': result['details'],
-                    'market': serializer.data
-                })
+                    'error': 'Cannot activate market without bids. Please ensure at least one spread bid is placed before activation, or have users place initial bids.',
+                    'details': {
+                        'bids_count': market.spread_bids.count(),
+                        'requires_initial_bid': True,
+                        'suggestion': 'Ask users to place spread bids first, then try activation again.'
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
             else:
-                # Restore original time if activation failed
+                # Normal activation or admin override with bids
                 if admin_override:
-                    market.spread_bidding_close = original_close_time
+                    # Temporarily set bidding close to past time for admin override
+                    market.spread_bidding_close_trading_open = now - timezone.timedelta(minutes=1)
                     market.save()
                 
-                return Response(
-                    {'error': result['reason']},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                result = market.auto_activate_market()
+                
+                if result['success']:
+                    # Keep the original close time unless admin changed it intentionally
+                    if admin_override:
+                        market.spread_bidding_close_trading_open = now - timezone.timedelta(minutes=1)
+                        market.save()
+                    
+                    serializer = MarketSerializer(market)
+                    return Response({
+                        'message': f"{result['reason']} (Admin Override)" if admin_override else result['reason'],
+                        'details': result['details'],
+                        'market': serializer.data
+                    })
+                else:
+                    # Restore original time if activation failed
+                    if admin_override:
+                        market.spread_bidding_close_trading_open = original_close_time
+                        market.save()
+                    
+                    return Response(
+                        {'error': result['reason']},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
         except Exception as e:
             # Restore original time if error occurred
             if admin_override:
-                market.spread_bidding_close = original_close_time
+                market.spread_bidding_close_trading_open = now - timezone.timedelta(minutes=1)
                 market.save()
             
             return Response(

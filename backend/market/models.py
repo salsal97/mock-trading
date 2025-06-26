@@ -96,13 +96,22 @@ class Market(models.Model):
     
     @property
     def should_auto_activate(self):
-        """Check if market should be automatically activated"""
+        """
+        Check if market should be automatically activated.
+        Business rule: activate when:
+        a. there has been at least one bid from one user and the spread bidding window is closed
+        b. admin forcefully activates the market using their auto activate button
+        """
         now = timezone.now()
+        has_bids = self.spread_bids.exists()
+        bidding_closed = now > self.spread_bidding_close_trading_open
+        
         return (
             self.status == 'CREATED' and 
-            now > self.spread_bidding_close_trading_open and 
+            bidding_closed and
+            has_bids and
             self.final_spread_low is None and 
-            self.final_spread_high is None #TODO: Fix this
+            self.final_spread_high is None
         )
     
     @property
@@ -116,8 +125,8 @@ class Market(models.Model):
         if self.status == 'CREATED' and self.best_spread_bid:
             return f"Best: {self.current_best_spread_width}"
         
-        # Default to initial spread
-        return f"Initial: {self.initial_spread}"
+        # New rule: No default spread high, show that bids are needed
+        return "No bids yet - waiting for initial bid"
     
     @property
     def best_spread_bid(self):
@@ -130,11 +139,12 @@ class Market(models.Model):
     
     @property
     def current_best_spread_width(self):
-        """Get the width of the current best spread bid, or initial spread if no bids"""
+        """Get the width of the current best spread bid, or None if no bids"""
         best_bid = self.best_spread_bid
         if best_bid:
             return best_bid.spread_width
-        return self.initial_spread
+        # New rule: No default spread, return None if no bids
+        return None
     
     def get_user_best_bid(self, user):
         """Get a user's best (tightest) bid on this market"""
@@ -171,14 +181,22 @@ class Market(models.Model):
         # Market must be open for trading
         if not self.is_trading_active:
             return False, "Market is not open for trading"
-        
+    
         # User must be verified (if profile exists)
         if hasattr(user, 'profile') and not user.profile.is_verified:
             return False, "Only verified users can trade"
         
-        # User cannot be the market maker
-        if self.market_maker == user or self.created_by == user:
+        # Rule 7: Market maker cannot trade on their own market
+        if self.market_maker == user:
             return False, "Market makers cannot trade on their own markets"
+        
+        # Rule 9: Admins cannot trade on markets
+        if user.is_staff or user.is_superuser:
+            return False, "Administrators cannot place trades"
+        
+        # Rule 9: Market creator cannot trade on their own market  
+        if self.created_by == user:
+            return False, "Market creators cannot trade on their own markets"
         
         return True, "User can trade"
     
@@ -204,35 +222,22 @@ class Market(models.Model):
                     'details': {
                         'status': self.status,
                         'bidding_closed': timezone.now() > self.spread_bidding_close_trading_open,
+                        'has_bids': self.spread_bids.exists(),
                         'already_activated': self.final_spread_low is not None
                     }
                 }
             
-            # Get the winning bid
+            # Get the winning bid - Rule 3: tie breaker is first come first serve
             winning_bid = self.best_spread_bid
             
             if not winning_bid:
-                # No bids received - use initial spread and keep original creator
-                logger.info(f"Market {self.id}: No bids received, using initial spread")
-                self.final_spread_low = 50 - (self.initial_spread // 2)
-                self.final_spread_high = 50 + (self.initial_spread // 2)
-                
-                # Set market maker fields for trading system
-                self.market_maker = self.created_by  # Keep original creator as market maker
-                self.market_maker_spread_low = self.final_spread_low
-                self.market_maker_spread_high = self.final_spread_high
-                
-                self.status = 'OPEN'
-                self.save()
-                
+                # This should not happen due to should_auto_activate check, but handle gracefully
                 return {
-                    'success': True,
-                    'reason': 'No bids received, activated with initial spread',
+                    'success': False,
+                    'reason': 'No bids available for activation. Please place at least one spread bid before activation.',
                     'details': {
-                        'winning_bid': None,
-                        'final_spread_low': self.final_spread_low,
-                        'final_spread_high': self.final_spread_high,
-                        'market_maker': self.created_by.username
+                        'bids_count': self.spread_bids.count(),
+                        'requires_initial_bid': True
                     }
                 }
             
@@ -310,6 +315,8 @@ class Market(models.Model):
 
     def save(self, *args, **kwargs):
         """Override save to ensure market maker fields are properly set"""
+        from django.core.exceptions import ValidationError
+        
         # If market is being set to OPEN status, ensure market maker fields are set
         if self.status == 'OPEN':
             if not self.market_maker:
@@ -317,16 +324,13 @@ class Market(models.Model):
                 self.market_maker = self.created_by
                 
             if not self.market_maker_spread_low or not self.market_maker_spread_high:
-                # If market maker spread is not set, use final spread or initial spread
+                # If market maker spread is not set, use final spread
                 if self.final_spread_low and self.final_spread_high:
                     self.market_maker_spread_low = self.final_spread_low
                     self.market_maker_spread_high = self.final_spread_high
                 else:
-                    # Calculate from initial spread if final spread not set
-                    self.final_spread_low = 50 - (self.initial_spread // 2)
-                    self.final_spread_high = 50 + (self.initial_spread // 2)
-                    self.market_maker_spread_low = self.final_spread_low
-                    self.market_maker_spread_high = self.final_spread_high
+                    # New rule: No default spread, market should not be OPEN without actual bids
+                    raise ValidationError("Cannot open market without final spread values from actual bids")
                     
             if not self.final_spread_low or not self.final_spread_high:
                 # Ensure final spread is always set for OPEN markets
@@ -388,11 +392,30 @@ class SpreadBid(models.Model):
         """Validate the spread bid"""
         from django.core.exceptions import ValidationError
         
+        # Rule 5: Spread bid values should only be positive numbers
+        if self.spread_low <= 0:
+            raise ValidationError("Spread low must be a positive number")
+        
+        if self.spread_high <= 0:
+            raise ValidationError("Spread high must be a positive number")
+        
         if self.spread_low >= self.spread_high:
             raise ValidationError("Spread low must be less than spread high")
         
         if self.spread_width <= 0:
             raise ValidationError("Spread width must be positive")
+        
+        # Rule 2: You cannot bid outside the bidding windows
+        if not self.market.is_spread_bidding_active:
+            raise ValidationError("Spread bidding is not currently active for this market")
+        
+        # Rule 9: Admins cannot take part in bidding
+        if self.user.is_staff or self.user.is_superuser:
+            raise ValidationError("Administrators cannot place spread bids")
+        
+        # Rule 9: Market creator (admin) cannot bid on their own market
+        if self.user == self.market.created_by:
+            raise ValidationError("Market creators cannot bid on their own markets")
     
     def save(self, *args, **kwargs):
         """Override save to run validation"""
@@ -485,16 +508,30 @@ class Trade(models.Model):
         if not self.market.is_trading_active:
             raise ValidationError("Market is not open for trading")
         
-        # Check if user is verified (if profile exists)
-        if hasattr(self.user, 'profile') and not self.user.profile.is_verified:
-            raise ValidationError("Only verified users can place trades")
+        # Rule 7: Market maker cannot place trades on their own market
+        if self.user == self.market.market_maker:
+            raise ValidationError("Market makers cannot trade on their own markets")
         
-        # Validate price is within market spread
-        if self.market.final_spread_low is not None and self.market.final_spread_high is not None:
-            if self.position == 'LONG' and self.price < self.market.final_spread_high:
-                raise ValidationError(f"Long position price must be at least {self.market.final_spread_high}")
-            elif self.position == 'SHORT' and self.price > self.market.final_spread_low:
-                raise ValidationError(f"Short position price must be at most {self.market.final_spread_low}")
+        # Rule 9: Admins cannot trade on markets
+        if self.user.is_staff or self.user.is_superuser:
+            raise ValidationError("Administrators cannot place trades")
+        
+        # Rule 9: Market creator cannot trade on their own market
+        if self.user == self.market.created_by:
+            raise ValidationError("Market creators cannot trade on their own markets")
+        
+        # Rule 7: Validate trading prices - buyers pay market maker HIGH, sellers pay market maker LOW
+        if self.market.market_maker_spread_low is not None and self.market.market_maker_spread_high is not None:
+            if self.position == 'LONG':
+                # Buyers think market will settle above market maker HIGH, so they pay HIGH price
+                expected_price = float(self.market.market_maker_spread_high)
+                if abs(self.price - expected_price) > 0.01:  # Allow small floating point differences
+                    raise ValidationError(f"Long positions must buy at market maker HIGH price: {expected_price}")
+            elif self.position == 'SHORT':
+                # Sellers think market will settle below market maker LOW, so they sell at LOW price  
+                expected_price = float(self.market.market_maker_spread_low)
+                if abs(self.price - expected_price) > 0.01:  # Allow small floating point differences
+                    raise ValidationError(f"Short positions must sell at market maker LOW price: {expected_price}")
         
         # Validate quantity
         if self.quantity <= 0:

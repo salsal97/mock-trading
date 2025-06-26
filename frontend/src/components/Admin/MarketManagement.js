@@ -185,15 +185,22 @@ const MarketManagement = () => {
             if (details.winning_bid) {
                 message += `\nWinner: ${details.winning_bid.user} (spread: ${details.winning_bid.spread_low}-${details.winning_bid.spread_high})`;
             } else {
-                message += '\nNo bids received - activated with initial spread';
+                message += '\nActivated with spread determined by bids';
             }
             
             alert(message);
             await verifyAdminAndFetchData();
         } catch (error) {
             console.error('Error activating market:', error);
-            const errorMessage = handleApiError(error);
+            
+            // Check if this is the new "no bids" error
+            if (error.response && error.response.data && error.response.data.details && error.response.data.details.requires_initial_bid) {
+                const errorData = error.response.data;
+                alert(`Cannot Activate Market\n\n${errorData.error}\n\nSuggestion: ${errorData.details.suggestion}`);
+            } else {
+                const errorMessage = handleApiError(error);
                 setError(`Error activating market: ${errorMessage}`);
+            }
         } finally {
             setActivating(prev => ({ ...prev, [marketId]: false }));
         }
