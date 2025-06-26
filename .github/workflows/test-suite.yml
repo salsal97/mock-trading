@@ -125,10 +125,31 @@ jobs:
         )
         print(f"✓ Created market: {market.id}")
         
-        # Test spread bid creation
+        # Create a different user for spread bidding (market creators can't bid on their own markets)
+        bidder_username = f"bidder_{uuid.uuid4().hex[:8]}"
+        bidder, created = User.objects.get_or_create(
+            username=bidder_username,
+            defaults={
+                'email': f'{bidder_username}@example.com',
+                'first_name': 'Bidder',
+                'last_name': 'User'
+            }
+        )
+        if created:
+            bidder.set_password('testpass')
+            bidder.save()
+        
+        # Test profile creation for bidder
+        bidder_profile, created = UserProfile.objects.get_or_create(
+            user=bidder,
+            defaults={'balance': 1000.0, 'is_verified': True}
+        )
+        print(f"✓ Created bidder: {bidder.username} (new: {created})")
+        
+        # Test spread bid creation with different user
         bid = SpreadBid.objects.create(
             market=market,
-            user=user,
+            user=bidder,  # Use different user, not market creator
             spread_low=40.0,
             spread_high=60.0
         )
@@ -179,7 +200,7 @@ jobs:
         echo "✓ Frontend build successful"
 
     - name: 📊 Upload Coverage
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: frontend-coverage
@@ -375,12 +396,38 @@ jobs:
         )
         print(f"✓ Created test market: {market.id}")
         
-        # Test spread bids
-        test_users = User.objects.filter(username__startswith='bidder')
+        # Create test bidders for spread bidding
+        from accounts.models import UserProfile
+        import uuid
         
+        bidders = []
+        for i in range(3):
+            bidder_name = f"bidder_{uuid.uuid4().hex[:8]}"
+            bidder, created = User.objects.get_or_create(
+                username=bidder_name,
+                defaults={
+                    'email': f'{bidder_name}@example.com',
+                    'first_name': f'Bidder{i+1}',
+                    'last_name': 'User'
+                }
+            )
+            if created:
+                bidder.set_password('testpass')
+                bidder.save()
+            
+            # Create profile for bidder
+            profile, created = UserProfile.objects.get_or_create(
+                user=bidder,
+                defaults={'balance': 1000.0, 'is_verified': True}
+            )
+            bidders.append(bidder)
+        
+        print(f"✓ Created {len(bidders)} test bidders")
+        
+        # Test spread bids with created bidders
         bid1 = SpreadBid.objects.create(
             market=market,
-            user=test_users[0],
+            user=bidders[0],
             spread_low=40.0,
             spread_high=60.0
         )
@@ -388,7 +435,7 @@ jobs:
         
         bid2 = SpreadBid.objects.create(
             market=market,
-            user=test_users[1],
+            user=bidders[1],
             spread_low=42.0,
             spread_high=58.0
         )
@@ -397,7 +444,7 @@ jobs:
         # Test high values (no upper limit)
         bid3 = SpreadBid.objects.create(
             market=market,
-            user=test_users[2],
+            user=bidders[2],
             spread_low=200.0,
             spread_high=300.0
         )
@@ -436,7 +483,7 @@ jobs:
         fi
 
     - name: 📊 Upload Test Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: integration-test-results
@@ -445,8 +492,8 @@ jobs:
           backend/logs/
         retention-days: 7
 
-  local-tests:
-    name: 🏠 Local Environment Tests
+  business-rules-tests:
+    name: 🎯 Business Rules Tests
     runs-on: ubuntu-latest
     needs: [backend-tests]
 
@@ -464,17 +511,17 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
 
-    - name: 🧪 Run Local Tests
+    - name: 🧪 Run Business Rules Tests
       run: |
         export DJANGO_SETTINGS_MODULE=mock_trading.settings
         export SECRET_KEY=test-local-key
         export DEBUG=True
-        python test_local.py
+        python test_business_rules.py
 
   summary:
     name: 📋 Test Summary
     runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests, integration-tests, local-tests]
+    needs: [backend-tests, frontend-tests, integration-tests, business-rules-tests]
     if: always()
 
     steps:
@@ -487,10 +534,10 @@ jobs:
         echo "| 🐍 Backend Tests | ${{ needs.backend-tests.result }} | Django unit tests, migrations, models |" >> $GITHUB_STEP_SUMMARY
         echo "| ⚛️ Frontend Tests | ${{ needs.frontend-tests.result }} | React tests, build validation, coverage |" >> $GITHUB_STEP_SUMMARY
         echo "| 🔗 Integration Tests | ${{ needs.integration-tests.result }} | Full-stack API tests, spread bidding |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🏠 Local Tests | ${{ needs.local-tests.result }} | Standalone logic validation |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🎯 Business Rules Tests | ${{ needs.business-rules-tests.result }} | Comprehensive business rules validation |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [[ "${{ needs.backend-tests.result }}" == "success" && "${{ needs.frontend-tests.result }}" == "success" && "${{ needs.integration-tests.result }}" == "success" && "${{ needs.local-tests.result }}" == "success" ]]; then
+        if [[ "${{ needs.backend-tests.result }}" == "success" && "${{ needs.frontend-tests.result }}" == "success" && "${{ needs.integration-tests.result }}" == "success" && "${{ needs.business-rules-tests.result }}" == "success" ]]; then
           echo "## ✅ All Tests Passed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🎉 The application is ready for deployment!" >> $GITHUB_STEP_SUMMARY
