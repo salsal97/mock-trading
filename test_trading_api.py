@@ -12,7 +12,7 @@ import os
 # Configuration
 API_BASE_URL = os.getenv('API_BASE_URL', 'https://salonis-mock-trading-app.azurewebsites.net')
 ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD = 'admin123'
+ADMIN_PASSWORD = os.getenv('TEST_ADMIN_PASSWORD', 'admin123')
 
 def get_admin_token():
     """Get admin authentication token"""
@@ -129,9 +129,10 @@ def test_spread_bidding(admin_token, market_id):
     print("\n=== Testing Spread Bidding Functionality ===")
     
     # Create test users
-    user1_token = create_user_and_get_token('bidder1', 'testpass123')
-    user2_token = create_user_and_get_token('bidder2', 'testpass123')
-    user3_token = create_user_and_get_token('bidder3', 'testpass123')
+    user_password = os.getenv('TEST_USER_PASSWORD', 'testpass123')
+    user1_token = create_user_and_get_token('bidder1', user_password)
+    user2_token = create_user_and_get_token('bidder2', user_password)
+    user3_token = create_user_and_get_token('bidder3', user_password)
     
     if not all([user1_token, user2_token, user3_token]):
         print("Failed to create test users")
@@ -422,7 +423,7 @@ def main():
     trading_market_id = create_test_market(admin_token)
     if trading_market_id:
         # Create a test user for trading (admin can't trade)
-        trader_token = create_user_and_get_token('trader', 'testpass123')
+        trader_token = create_user_and_get_token('trader', os.getenv('TEST_USER_PASSWORD', 'testpass123'))
         if trader_token:
             test_trading_endpoints(trader_token, trading_market_id)
     

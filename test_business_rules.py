@@ -26,9 +26,58 @@ import json
 backend_path = os.path.join(os.path.dirname(__file__), 'backend')
 sys.path.insert(0, backend_path)
 
-# Configure Django settings
+# Configure Django settings for CI environment
+if 'GITHUB_ACTIONS' in os.environ:
+    # Use SQLite for GitHub Actions
+    os.environ['USE_SQLITE'] = 'True'
+    # SECRET_KEY should be passed from environment/secrets
+    if 'SECRET_KEY' not in os.environ:
+        raise ValueError("SECRET_KEY environment variable must be set for GitHub Actions")
+    os.environ['DEBUG'] = 'True'
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
-django.setup()
+
+# Override database settings for testing if needed
+if os.environ.get('USE_SQLITE') == 'True':
+    from django.conf import settings
+    if not settings.configured:
+        settings.configure(
+            DEBUG=True,
+            SECRET_KEY=os.environ.get('SECRET_KEY', 'fallback-key-for-local-testing'),
+            DATABASES={
+                'default': {
+                    'ENGINE': 'django.db.backends.sqlite3',
+                    'NAME': ':memory:',
+                }
+            },
+            INSTALLED_APPS=[
+                'django.contrib.auth',
+                'django.contrib.contenttypes',
+                'django.contrib.sessions',
+                'accounts',
+                'market',
+                'rest_framework',
+            ],
+            USE_TZ=True,
+            TIME_ZONE='UTC',
+            REST_FRAMEWORK={
+                'DEFAULT_AUTHENTICATION_CLASSES': [
+                    'rest_framework.authentication.SessionAuthentication',
+                ],
+                'DEFAULT_PERMISSION_CLASSES': [
+                    'rest_framework.permissions.IsAuthenticated',
+                ],
+            },
+            ALLOWED_HOSTS=['*'],
+        )
+    django.setup()
+    
+    # Run migrations for in-memory database
+    from django.core.management import call_command
+    call_command('migrate', verbosity=0, interactive=False)
+    print("✓ Database migrations completed")
+else:
+    django.setup()
 
 from django.test import TestCase
 from django.contrib.auth.models import User
@@ -55,11 +104,15 @@ class BusinessRulesTestCase(TestCase):
         import uuid
         test_id = str(uuid.uuid4())[:8]
         
+        # Get test password from environment
+        test_password = os.environ.get('TEST_USER_PASSWORD', 'testpass123')
+        admin_password = os.environ.get('TEST_ADMIN_PASSWORD', 'admin123')
+        
         self.admin, created = User.objects.get_or_create(
             username=f'admin_{test_id}',
             defaults={
                 'email': f'admin_{test_id}@test.com',
-                'password': 'testpass123',
+                'password': admin_password,
                 'is_staff': True,
                 'is_superuser': True
             }
@@ -75,7 +128,7 @@ class BusinessRulesTestCase(TestCase):
             username=f'user1_{test_id}',
             defaults={
                 'email': f'user1_{test_id}@test.com',
-                'password': 'testpass123'
+                'password': test_password
             }
         )
         UserProfile.objects.get_or_create(
@@ -87,7 +140,7 @@ class BusinessRulesTestCase(TestCase):
             username=f'user2_{test_id}',
             defaults={
                 'email': f'user2_{test_id}@test.com',
-                'password': 'testpass123'
+                'password': test_password
             }
         )
         UserProfile.objects.get_or_create(
@@ -99,7 +152,7 @@ class BusinessRulesTestCase(TestCase):
             username=f'user3_{test_id}',
             defaults={
                 'email': f'user3_{test_id}@test.com',
-                'password': 'testpass123'
+                'password': test_password
             }
         )
         UserProfile.objects.get_or_create(

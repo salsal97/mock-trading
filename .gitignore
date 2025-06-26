@@ -5,6 +5,7 @@ setup-env.ps1
 __pycache__/
 *.py[cod]
 *$py.class
+backend/test_local.py
 
 # C extensions
 *.so
