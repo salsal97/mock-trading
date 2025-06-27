@@ -4,10 +4,10 @@ import App from './App';
 
 test('renders login form', () => {
   render(<App />);
-  const welcomeText = screen.getByText(/welcome back/i);
+  const welcomeText = screen.getByText(/welcome to oxford mock trading/i);
   expect(welcomeText).toBeInTheDocument();
   
-  const loginButton = screen.getByRole('button', { name: /login/i });
+  const loginButton = screen.getByRole('button', { name: /sign in to platform/i });
   expect(loginButton).toBeInTheDocument();
 });
 
