@@ -140,144 +140,211 @@ const Auth = () => {
 
     return (
         <div className="auth-container">
-            <div className="auth-card">
-                <div className="auth-header">
-                    <h1>{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
-                    <p>{isLogin ? 'Please login to your account' : 'Sign up to get started'}</p>
+            {/* Background Elements */}
+            <div className="auth-background">
+                <div className="oxford-pattern"></div>
+                <div className="floating-elements">
+                    <div className="floating-element"></div>
+                    <div className="floating-element"></div>
+                    <div className="floating-element"></div>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="auth-content">
+                {/* Brand Header */}
+                <div className="brand-header">
+                    <div className="oxford-logo">
+                        <div className="logo-shield">
+                            <div className="shield-inner">
+                                <span className="logo-text">Oxford</span>
+                            </div>
+                        </div>
+                    </div>
+                    <h1 className="brand-title">Welcome to Oxford Mock Trading</h1>
+                    <p className="brand-subtitle">
+                        Advanced Market Simulation Platform for MBA Students
+                    </p>
                 </div>
 
-                {error && <div className="error-message">{error}</div>}
-                {success && <div className="success-message">{success}</div>}
-
-                <form onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label htmlFor="username">Username</label>
-                        <input
-                            type="text"
-                            id="username"
-                            name="username"
-                            value={formData.username}
-                            onChange={handleChange}
-                            required
-                            className={hasFieldError('username') ? 'error' : ''}
-                        />
-                        {hasFieldError('username') && (
-                            <span className="field-error">{getFieldError('username')}</span>
-                        )}
+                {/* Auth Card */}
+                <div className="auth-card">
+                    <div className="auth-header">
+                        <h2>{isLogin ? 'Sign In to Your Account' : 'Create Your Account'}</h2>
+                        <p>{isLogin ? 'Enter your credentials to access the trading platform' : 'Join the Oxford Mock Trading community'}</p>
                     </div>
 
-                    {!isLogin && (
-                        <>
-                            <div className="form-group">
-                                <label htmlFor="email">Email</label>
-                                <input
-                                    type="email"
-                                    id="email"
-                                    name="email"
-                                    value={formData.email}
-                                    onChange={handleChange}
-                                    className={hasFieldError('email') ? 'error' : ''}
-                                />
-                                {hasFieldError('email') && (
-                                    <span className="field-error">{getFieldError('email')}</span>
-                                )}
-                            </div>
-                            <div className="form-group">
-                                <label htmlFor="first_name">First Name</label>
-                                <input
-                                    type="text"
-                                    id="first_name"
-                                    name="first_name"
-                                    value={formData.first_name}
-                                    onChange={handleChange}
-                                    className={hasFieldError('first_name') ? 'error' : ''}
-                                />
-                                {hasFieldError('first_name') && (
-                                    <span className="field-error">{getFieldError('first_name')}</span>
-                                )}
-                            </div>
-                            <div className="form-group">
-                                <label htmlFor="last_name">Last Name</label>
-                                <input
-                                    type="text"
-                                    id="last_name"
-                                    name="last_name"
-                                    value={formData.last_name}
-                                    onChange={handleChange}
-                                    className={hasFieldError('last_name') ? 'error' : ''}
-                                />
-                                {hasFieldError('last_name') && (
-                                    <span className="field-error">{getFieldError('last_name')}</span>
-                                )}
-                            </div>
-                        </>
-                    )}
+                    {error && <div className="error-message">{error}</div>}
+                    {success && <div className="success-message">{success}</div>}
 
-                    <div className="form-group">
-                        <label htmlFor="password">Password</label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            value={formData.password}
-                            onChange={handleChange}
-                            required
-                            className={hasFieldError('password') ? 'error' : ''}
-                        />
-                        {hasFieldError('password') && (
-                            <span className="field-error">{getFieldError('password')}</span>
-                        )}
-                    </div>
-
-                    {!isLogin && (
+                    <form onSubmit={handleSubmit} className="auth-form">
                         <div className="form-group">
-                            <label htmlFor="password2">Confirm Password</label>
+                            <label htmlFor="username">
+                                <span className="label-icon">👤</span>
+                                Username
+                            </label>
                             <input
-                                type="password"
-                                id="password2"
-                                name="password2"
-                                value={formData.password2}
+                                type="text"
+                                id="username"
+                                name="username"
+                                value={formData.username}
                                 onChange={handleChange}
                                 required
-                                className={hasFieldError('password2') ? 'error' : ''}
+                                className={hasFieldError('username') ? 'error' : ''}
+                                placeholder="Enter your username"
                             />
-                            {hasFieldError('password2') && (
-                                <span className="field-error">{getFieldError('password2')}</span>
+                            {hasFieldError('username') && (
+                                <span className="field-error">{getFieldError('username')}</span>
                             )}
                         </div>
-                    )}
 
-                    <button 
-                        type="submit" 
-                        className="auth-button"
-                        disabled={loading}
-                    >
-                        {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
-                    </button>
-                </form>
+                        {!isLogin && (
+                            <>
+                                <div className="form-group">
+                                    <label htmlFor="email">
+                                        <span className="label-icon">📧</span>
+                                        Email Address
+                                    </label>
+                                    <input
+                                        type="email"
+                                        id="email"
+                                        name="email"
+                                        value={formData.email}
+                                        onChange={handleChange}
+                                        className={hasFieldError('email') ? 'error' : ''}
+                                        placeholder="your.email@example.com"
+                                    />
+                                    {hasFieldError('email') && (
+                                        <span className="field-error">{getFieldError('email')}</span>
+                                    )}
+                                </div>
+                                
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label htmlFor="first_name">
+                                            <span className="label-icon">✏️</span>
+                                            First Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="first_name"
+                                            name="first_name"
+                                            value={formData.first_name}
+                                            onChange={handleChange}
+                                            className={hasFieldError('first_name') ? 'error' : ''}
+                                            placeholder="First name"
+                                        />
+                                        {hasFieldError('first_name') && (
+                                            <span className="field-error">{getFieldError('first_name')}</span>
+                                        )}
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="last_name">
+                                            <span className="label-icon">✏️</span>
+                                            Last Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="last_name"
+                                            name="last_name"
+                                            value={formData.last_name}
+                                            onChange={handleChange}
+                                            className={hasFieldError('last_name') ? 'error' : ''}
+                                            placeholder="Last name"
+                                        />
+                                        {hasFieldError('last_name') && (
+                                            <span className="field-error">{getFieldError('last_name')}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
-                <div className="auth-toggle">
-                    <p>
-                        {isLogin ? "Don't have an account? " : "Already have an account? "}
+                        <div className="form-group">
+                            <label htmlFor="password">
+                                <span className="label-icon">🔒</span>
+                                Password
+                            </label>
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                value={formData.password}
+                                onChange={handleChange}
+                                required
+                                className={hasFieldError('password') ? 'error' : ''}
+                                placeholder="Enter your password"
+                            />
+                            {hasFieldError('password') && (
+                                <span className="field-error">{getFieldError('password')}</span>
+                            )}
+                        </div>
+
+                        {!isLogin && (
+                            <div className="form-group">
+                                <label htmlFor="password2">
+                                    <span className="label-icon">🔒</span>
+                                    Confirm Password
+                                </label>
+                                <input
+                                    type="password"
+                                    id="password2"
+                                    name="password2"
+                                    value={formData.password2}
+                                    onChange={handleChange}
+                                    className={hasFieldError('password2') ? 'error' : ''}
+                                    placeholder="Confirm your password"
+                                />
+                                {hasFieldError('password2') && (
+                                    <span className="field-error">{getFieldError('password2')}</span>
+                                )}
+                            </div>
+                        )}
+
                         <button 
-                            type="button"
-                            className="toggle-link"
-                            onClick={() => {
-                                setIsLogin(!isLogin);
-                                setError('');
-                                setFormData({
-                                    username: '',
-                                    email: '',
-                                    password: '',
-                                    confirmPassword: '',
-                                    firstName: '',
-                                    lastName: ''
-                                });
-                            }}
+                            type="submit" 
+                            className="auth-button"
+                            disabled={loading}
                         >
-                            {isLogin ? 'Sign up' : 'Sign in'}
+                            {loading ? (
+                                <span className="button-loading">
+                                    <span className="spinner"></span>
+                                    {isLogin ? 'Signing In...' : 'Creating Account...'}
+                                </span>
+                            ) : (
+                                <span>
+                                    {isLogin ? '🚀 Sign In to Platform' : '🎓 Create Account'}
+                                </span>
+                            )}
                         </button>
-                    </p>
+                    </form>
+
+                    <div className="auth-footer">
+                        <p>
+                            {isLogin ? "Don't have an account?" : "Already have an account?"}{' '}
+                            <a onClick={() => setIsLogin(!isLogin)}>
+                                {isLogin ? 'Create one here' : 'Sign in here'}
+                            </a>
+                        </p>
+                        
+                        {isLogin && (
+                            <div className="additional-links">
+                                <a href="#" className="link-secondary">Forgot your password?</a>
+                                <span className="divider">|</span>
+                                <a href="#" className="link-secondary">Need help?</a>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="platform-footer">
+                    <p>© 2024 Oxford Mock Trading Platform. Built for MBA Excellence.</p>
+                    <div className="footer-links">
+                        <a href="#">Privacy Policy</a>
+                        <a href="#">Terms of Service</a>
+                        <a href="#">Support</a>
+                    </div>
                 </div>
             </div>
         </div>

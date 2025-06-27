@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from decimal import Decimal, ROUND_UP
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,11 +60,21 @@ class Market(models.Model):
     
     # Settlement fields
     final_outcome = models.BooleanField(null=True, blank=True, help_text="True if market resolves to YES/LONG, False if NO/SHORT")
-    settlement_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Final settlement price")
+    settlement_price = models.DecimalField(
+        max_digits=12, 
+        decimal_places=2, 
+        null=True, 
+        blank=True, 
+        help_text="Final settlement price (0.01 to 999999.99)"
+    )
     settled_at = models.DateTimeField(null=True, blank=True)
     market_maker = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='market_maker_markets')
     market_maker_spread_low = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     market_maker_spread_high = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # Settlement confirmation tracking
+    settlement_preview_calculated = models.BooleanField(default=False, help_text="Whether settlement preview has been calculated")
+    settlement_confirmed = models.BooleanField(default=False, help_text="Whether admin has confirmed the settlement")
     
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -89,10 +101,20 @@ class Market(models.Model):
         return self.spread_bidding_close_trading_open <= now <= self.trading_close and self.status == 'OPEN'
     
     @property
-    def can_be_settled(self):
-        """Check if market can be settled"""
+    def should_auto_close(self):
+        """Check if market should be automatically closed"""
         now = timezone.now()
-        return now > self.trading_close and self.status == 'CLOSED'
+        return self.status == 'OPEN' and now >= self.trading_close
+    
+    @property
+    def can_be_settled(self):
+        """Check if market can be settled - must be CLOSED and have settlement price"""
+        return self.status == 'CLOSED' and self.settlement_price is not None
+    
+    @property
+    def can_be_reopened(self):
+        """Check if market can be reopened - must be CLOSED and not have settlement price entered"""
+        return self.status == 'CLOSED' and self.settlement_price is None
     
     @property
     def should_auto_activate(self):
@@ -115,6 +137,27 @@ class Market(models.Model):
         )
     
     @property
+    def should_delay_for_no_bids(self):
+        """
+        Check if market should be delayed due to no spread bids.
+        New business rule: if there have been no bids made for the spread, 
+        even if the spread bidding window is closed, the trading will not open 
+        and the bidding close time will delay by a day (at a time), 
+        so will the trading close time.
+        """
+        now = timezone.now()
+        has_no_bids = not self.spread_bids.exists()
+        bidding_closed = now > self.spread_bidding_close_trading_open
+        
+        return (
+            self.status == 'CREATED' and 
+            bidding_closed and
+            has_no_bids and
+            self.final_spread_low is None and 
+            self.final_spread_high is None
+        )
+    
+    @property
     def current_spread_display(self):
         """Display current spread - shows best bid width during bidding, final range after"""
         # If market has final spread set (after bidding), show the range
@@ -125,7 +168,11 @@ class Market(models.Model):
         if self.status == 'CREATED' and self.best_spread_bid:
             return f"Best: {self.current_best_spread_width}"
         
-        # New rule: No default spread high, show that bids are needed
+        # Check if market should be delayed due to no bids
+        if self.should_delay_for_no_bids:
+            return "No bids - will delay by 1 day"
+        
+        # Default message for markets waiting for bids
         return "No bids yet - waiting for initial bid"
     
     @property
@@ -181,7 +228,7 @@ class Market(models.Model):
         # Market must be open for trading
         if not self.is_trading_active:
             return False, "Market is not open for trading"
-    
+        
         # User must be verified (if profile exists)
         if hasattr(user, 'profile') and not user.profile.is_verified:
             return False, "Only verified users can trade"
@@ -282,41 +329,256 @@ class Market(models.Model):
                 'details': {'error': str(e)}
             }
     
-    def settle_market(self, outcome, settlement_price=None):
+    def delay_market_for_no_bids(self):
         """
-        Settle the market and calculate all profit/loss for trades
-        """
-        if self.status == 'SETTLED':
-            return False, "Market already settled"
-            
-        self.final_outcome = outcome
-        self.settlement_price = settlement_price or (self.market_maker_spread_high if outcome else self.market_maker_spread_low)
-        self.status = 'SETTLED'
-        self.settled_at = timezone.now()
-        self.save()
+        Delay the market by one day when there are no spread bids.
         
-        # Calculate profit/loss for all trades
-        trades = self.trade_set.all()
-        for trade in trades:
-            trade.calculate_settlement()
+        This method:
+        1. Extends spread_bidding_close_trading_open by 1 day
+        2. Extends trading_close by 1 day
+        3. Logs the delay action
+        
+        Returns:
+            dict: Result of the delay with success status and details
+        """
+        try:
+            if not self.should_delay_for_no_bids:
+                return {
+                    'success': False,
+                    'reason': 'Market is not eligible for delay',
+                    'details': {
+                        'status': self.status,
+                        'bidding_closed': timezone.now() > self.spread_bidding_close_trading_open,
+                        'has_bids': self.spread_bids.exists(),
+                        'already_activated': self.final_spread_low is not None
+                    }
+                }
             
-        return True, f"Market settled with outcome: {'YES' if outcome else 'NO'}"
+            from datetime import timedelta
+            
+            # Store old times for logging
+            old_bidding_close = self.spread_bidding_close_trading_open
+            old_trading_close = self.trading_close
+            
+            # Delay both times by 24 hours
+            self.spread_bidding_close_trading_open += timedelta(days=1)
+            self.trading_close += timedelta(days=1)
+            
+            self.save()
+            
+            logger.info(f"Market {self.id}: Delayed by 1 day due to no spread bids")
+            logger.info(f"Market {self.id}: Bidding close moved from {old_bidding_close} to {self.spread_bidding_close_trading_open}")
+            logger.info(f"Market {self.id}: Trading close moved from {old_trading_close} to {self.trading_close}")
+            
+            return {
+                'success': True,
+                'reason': 'Market delayed by 1 day due to no spread bids',
+                'details': {
+                    'old_bidding_close': old_bidding_close,
+                    'new_bidding_close': self.spread_bidding_close_trading_open,
+                    'old_trading_close': old_trading_close,
+                    'new_trading_close': self.trading_close,
+                    'delay_hours': 24,
+                    'bids_count': self.spread_bids.count()
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error delaying market {self.id}: {str(e)}")
+            return {
+                'success': False,
+                'reason': f'Error during delay: {str(e)}',
+                'details': {'error': str(e)}
+            }
     
-    def auto_settle_if_time(self):
-        """
-        Check if market should be auto-settled based on trading_close time
-        """
-        if self.status == 'OPEN' and timezone.now() >= self.trading_close:
+    def auto_close_if_time(self):
+        """Automatically close market if trading time has passed"""
+        if self.should_auto_close:
             self.status = 'CLOSED'
             self.save()
-            # Auto-settlement logic could be added here based on business rules
+            logger.info(f"Market {self.id} auto-closed at trading close time")
             return True
         return False
 
+    def set_settlement_price(self, price):
+        """Set settlement price and validate it"""
+        if self.status != 'CLOSED':
+            raise ValidationError("Can only set settlement price on CLOSED markets")
+        
+        if self.settlement_price is not None:
+            raise ValidationError("Settlement price has already been set")
+        
+        # Validate settlement price range (0.01 to 999999.99)
+        if not (Decimal('0.01') <= price <= Decimal('999999.99')):
+            raise ValidationError("Settlement price must be between 0.01 and 999999.99")
+        
+        # Round to 2 decimal places, rounding up when necessary
+        self.settlement_price = price.quantize(Decimal('0.01'), rounding=ROUND_UP)
+        self.settlement_preview_calculated = False  # Reset preview flag
+        self.settlement_confirmed = False  # Reset confirmation flag
+        self.save()
+        
+        return self.settlement_price
+
+    def calculate_settlement_preview(self):
+        """Calculate settlement preview for all trades without updating balances"""
+        if self.settlement_price is None:
+            raise ValidationError("Settlement price must be set before calculating preview")
+        
+        trades = self.trades.all()
+        settlement_data = {
+            'market_id': self.id,
+            'market_premise': self.premise,
+            'settlement_price': self.settlement_price,
+            'trades': [],
+            'market_maker_impact': Decimal('0.00'),
+            'total_trades': trades.count()
+        }
+        
+        market_maker_total = Decimal('0.00')
+        
+        for trade in trades:
+            # Calculate P&L according to new business rules
+            if trade.position == 'LONG':
+                # LONG: user is due (settlement_value - their_buy_value)
+                trade_pnl = self.settlement_price - Decimal(str(trade.price))
+            else:  # SHORT
+                # SHORT: user pays (settlement_value - their_sell_value) 
+                trade_pnl = Decimal(str(trade.price)) - self.settlement_price
+            
+            # Round to 2 decimal places
+            trade_pnl = trade_pnl.quantize(Decimal('0.01'), rounding=ROUND_UP)
+            
+            # Market maker impact is opposite of trader P&L
+            market_maker_total -= trade_pnl
+            
+            trade_data = {
+                'trade_id': trade.id,
+                'user_id': trade.user.id,
+                'username': trade.user.username,
+                'position': trade.position,
+                'trade_price': Decimal(str(trade.price)),
+                'settlement_price': self.settlement_price,
+                'profit_loss': trade_pnl,
+                'trade_time': trade.trade_time
+            }
+            settlement_data['trades'].append(trade_data)
+        
+        settlement_data['market_maker_impact'] = market_maker_total.quantize(Decimal('0.01'), rounding=ROUND_UP)
+        settlement_data['market_maker'] = {
+            'user_id': self.market_maker.id if self.market_maker else None,
+            'username': self.market_maker.username if self.market_maker else 'Unknown'
+        }
+        
+        self.settlement_preview_calculated = True
+        self.save()
+        
+        return settlement_data
+
+    def execute_settlement(self, confirmed_by_admin=True):
+        """Execute final settlement and update all user balances"""
+        if not self.settlement_preview_calculated:
+            raise ValidationError("Must calculate settlement preview before executing")
+        
+        if not confirmed_by_admin:
+            raise ValidationError("Admin confirmation required for settlement execution")
+        
+        if self.status == 'SETTLED':
+            return {'success': False, 'message': 'Market already settled'}
+        
+        # Get settlement data
+        settlement_data = self.calculate_settlement_preview()
+        
+        # Update user balances
+        balance_updates = []
+        
+        for trade_data in settlement_data['trades']:
+            user = User.objects.get(id=trade_data['user_id'])
+            trade = Trade.objects.get(id=trade_data['trade_id'])
+            
+            # Update user balance
+            if hasattr(user, 'profile'):
+                old_balance = user.profile.balance
+                user.profile.balance += trade_data['profit_loss']
+                user.profile.save()
+                
+                balance_updates.append({
+                    'user': user.username,
+                    'old_balance': old_balance,
+                    'new_balance': user.profile.balance,
+                    'change': trade_data['profit_loss']
+                })
+            
+            # Update trade settlement fields
+            trade.settlement_amount = self.settlement_price
+            trade.profit_loss = trade_data['profit_loss']
+            trade.is_settled = True
+            trade.settled_at = timezone.now()
+            trade.save()
+        
+        # Update market maker balance
+        if self.market_maker and hasattr(self.market_maker, 'profile'):
+            old_mm_balance = self.market_maker.profile.balance
+            self.market_maker.profile.balance += settlement_data['market_maker_impact']
+            self.market_maker.profile.save()
+            
+            balance_updates.append({
+                'user': f"{self.market_maker.username} (Market Maker)",
+                'old_balance': old_mm_balance,
+                'new_balance': self.market_maker.profile.balance,
+                'change': settlement_data['market_maker_impact']
+            })
+        
+        # Mark market as settled
+        self.status = 'SETTLED'
+        self.settled_at = timezone.now()
+        self.settlement_confirmed = True
+        self.save()
+        
+        logger.info(f"Market {self.id} settled successfully with {len(balance_updates)} balance updates")
+        
+        return {
+            'success': True,
+            'message': 'Market settled successfully',
+            'settlement_data': settlement_data,
+            'balance_updates': balance_updates
+        }
+
+    def reopen_trading(self, new_trading_close):
+        """Reopen trading with new close time (admin only, only if not settled)"""
+        if not self.can_be_reopened:
+            raise ValidationError("Market cannot be reopened - either not closed or settlement already started")
+        
+        # Validate new trading close time
+        if new_trading_close <= timezone.now():
+            raise ValidationError("New trading close time must be in the future")
+        
+        if new_trading_close <= self.spread_bidding_close_trading_open:
+            raise ValidationError("New trading close time must be after trading open time")
+        
+        self.status = 'OPEN'
+        self.trading_close = new_trading_close
+        self.settlement_price = None
+        self.settlement_preview_calculated = False
+        self.settlement_confirmed = False
+        self.save()
+        
+        logger.info(f"Market {self.id} reopened for trading until {new_trading_close}")
+        return True
+    
+    def auto_settle_if_time(self):
+        """
+        Check if market should be auto-closed based on trading_close time.
+        Settlement is now a manual admin process after closing.
+        """
+        return self.auto_close_if_time()
+
     def save(self, *args, **kwargs):
         """Override save to ensure market maker fields are properly set"""
-        from django.core.exceptions import ValidationError
-        
+        # Auto-close market if time has passed
+        if self.pk:  # Only for existing markets
+            self.auto_close_if_time()
+            
         # If market is being set to OPEN status, ensure market maker fields are set
         if self.status == 'OPEN':
             if not self.market_maker:
@@ -544,38 +806,18 @@ class Trade(models.Model):
     
     def calculate_settlement(self):
         """
-        Calculate profit/loss for this trade based on market outcome
+        Settlement calculation is now handled at the Market level.
+        This method is kept for compatibility but redirects to market settlement.
+        Use Market.calculate_settlement_preview() and Market.execute_settlement() instead.
         """
-        if self.is_settled or not self.market.final_outcome is not None:
-            return
+        if self.market.settlement_price is None:
+            raise ValidationError("Market must have settlement price set before calculating trade settlement")
+        
+        if self.is_settled:
+            return  # Already settled
             
-        market = self.market
-        
-        if self.position == 'LONG':
-            # Long position: profit if market outcome is True (YES)
-            if market.final_outcome:
-                # Market resolved YES - LONG wins
-                self.settlement_amount = self.quantity * market.settlement_price
-                self.profit_loss = self.settlement_amount - (self.quantity * self.price)
-            else:
-                # Market resolved NO - LONG loses
-                self.settlement_amount = 0
-                self.profit_loss = -(self.quantity * self.price)
-        else:  # SHORT position
-            # Short position: profit if market outcome is False (NO)
-            if not market.final_outcome:
-                # Market resolved NO - SHORT wins
-                self.settlement_amount = self.quantity * market.settlement_price
-                self.profit_loss = self.settlement_amount - (self.quantity * self.price)
-            else:
-                # Market resolved YES - SHORT loses
-                self.settlement_amount = 0
-                self.profit_loss = -(self.quantity * self.price)
-                
-        self.is_settled = True
-        self.settled_at = timezone.now()
-        self.save()
-        
-        # Update user balance
-        self.user.profile.balance += self.profit_loss
-        self.user.profile.save()
+        # Settlement is now handled through Market.execute_settlement()
+        # This method should not be called directly
+        logger.warning(f"Trade.calculate_settlement() called directly for trade {self.id}. "
+                      f"Use Market.execute_settlement() instead for proper settlement flow.")
+        return

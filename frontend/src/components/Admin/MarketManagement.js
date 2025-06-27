@@ -198,7 +198,7 @@ const MarketManagement = () => {
                 const errorData = error.response.data;
                 alert(`Cannot Activate Market\n\n${errorData.error}\n\nSuggestion: ${errorData.details.suggestion}`);
             } else {
-                const errorMessage = handleApiError(error);
+            const errorMessage = handleApiError(error);
                 setError(`Error activating market: ${errorMessage}`);
             }
         } finally {
