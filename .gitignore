@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 backend/test_local.py
+.env
 
 # C extensions
 *.so

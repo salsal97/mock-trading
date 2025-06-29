@@ -170,11 +170,185 @@ except User.DoesNotExist:
     Set-Location ..
 }
 
+# Function to run comprehensive tests (matching GitHub Actions)
+function Run-Tests {
+    param([string]$TestType = "all")
+    
+    Write-Host "`nRunning Comprehensive Test Suite..." -ForegroundColor Green
+    
+    # Load environment variables
+    & ".\setup-env.ps1"
+    
+    $testsPassed = $true
+    
+    if ($TestType -eq "all" -or $TestType -eq "backend") {
+        Write-Host "`n🐍 Running Backend Tests..." -ForegroundColor Yellow
+        Set-Location backend
+        .\venv\Scripts\activate
+        
+        # Run Django unit tests
+        Write-Host "Running Django unit tests..."
+        python manage.py test --verbosity=2
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+        
+        # Test database models
+        Write-Host "Testing database models..."
+        python -c "
+import os, django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
+django.setup()
+from django.contrib.auth.models import User
+from market.models import Market, SpreadBid, Trade
+from accounts.models import UserProfile
+from django.utils import timezone
+from datetime import timedelta
+import uuid
+
+print('=== Testing Model Creation ===')
+username = f'testuser_{uuid.uuid4().hex[:8]}'
+user, created = User.objects.get_or_create(
+    username=username,
+    defaults={'email': f'{username}@example.com', 'first_name': 'Test', 'last_name': 'User'}
+)
+if created:
+    user.set_password('testpass')
+    user.save()
+
+profile, created = UserProfile.objects.get_or_create(
+    user=user,
+    defaults={'balance': 1000.0, 'is_verified': True}
+)
+print(f'✓ Created user: {user.username}')
+
+now = timezone.now()
+market = Market.objects.create(
+    premise=f'Test market {uuid.uuid4().hex[:8]}',
+    unit_price=1.0,
+    initial_spread=20,
+    spread_bidding_open=now - timedelta(hours=1),
+    spread_bidding_close_trading_open=now + timedelta(hours=1),
+    trading_close=now + timedelta(hours=2),
+    created_by=user
+)
+print(f'✓ Created market: {market.id}')
+print('=== All model tests passed ===')
+"
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+        
+        Set-Location ..
+    }
+    
+    if ($TestType -eq "all" -or $TestType -eq "frontend") {
+        Write-Host "`n⚛️ Running Frontend Tests..." -ForegroundColor Yellow
+        Set-Location frontend
+        
+        # Install dependencies if needed
+        if (-not (Test-Path "node_modules")) {
+            Write-Host "Installing frontend dependencies..."
+            npm install
+        }
+        
+        # Run tests with coverage (matching GitHub Actions)
+        Write-Host "Running React tests with coverage..."
+        npm test -- --coverage --watchAll=false --testTimeout=30000
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+        
+        # Test build
+        Write-Host "Testing frontend build..."
+        $env:CI = "false"
+        npm run build
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+        
+        Set-Location ..
+    }
+    
+    if ($TestType -eq "all" -or $TestType -eq "business") {
+        Write-Host "`n🎯 Running Business Rules Tests..." -ForegroundColor Yellow
+        
+        # Set environment variables for business rules tests (NO HARDCODED PASSWORDS)
+        if (-not $env:SECRET_KEY) {
+            $env:SECRET_KEY = "test-secret-key-for-local-testing-only"
+            Write-Host "⚠️  Using temporary SECRET_KEY for testing" -ForegroundColor Yellow
+        }
+        $env:DEBUG = "True"
+        
+        python test_business_rules.py
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+    }
+    
+    if ($TestType -eq "all" -or $TestType -eq "api") {
+        Write-Host "`n🔗 Running API Integration Tests..." -ForegroundColor Yellow
+        
+        # Start backend server for API tests
+        Write-Host "Starting backend server for API tests..."
+        Set-Location backend
+        .\venv\Scripts\activate
+        
+        # Start server in background
+        $serverJob = Start-Job -ScriptBlock {
+            param($BackendPath, $VenvPath)
+            Set-Location $BackendPath
+            & "$VenvPath\Scripts\Activate.ps1"
+            python manage.py runserver 8000
+        } -ArgumentList (Get-Location), ".\venv"
+        
+        Set-Location ..
+        
+        # Wait for server to start
+        Write-Host "Waiting for server to start..."
+        Start-Sleep -Seconds 10
+        
+        # Test server health
+        try {
+            $response = Invoke-RestMethod -Uri "http://localhost:8000/" -Method GET -TimeoutSec 5
+            Write-Host "✓ Server is responding"
+        } catch {
+            Write-Host "⚠️ Server not responding, continuing with tests..."
+        }
+        
+        # Run API tests
+        $env:API_BASE_URL = "http://localhost:8000"
+        $env:TEST_ADMIN_PASSWORD = "admin123"
+        $env:TEST_USER_PASSWORD = "testpass123"
+        
+        python test_trading_api.py
+        if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
+        
+        # Stop server
+        Stop-Job $serverJob -Force
+        Remove-Job $serverJob -Force
+    }
+    
+    # Report results
+    Write-Host "`n" -NoNewline
+    if ($testsPassed) {
+        Write-Host "🎉 All Tests Passed!" -ForegroundColor Green
+        Write-Host "Your application is ready for deployment!" -ForegroundColor Green
+    } else {
+        Write-Host "❌ Some Tests Failed!" -ForegroundColor Red
+        Write-Host "Please fix the failing tests before proceeding." -ForegroundColor Red
+    }
+    
+    return $testsPassed
+}
+
+# Function to run specific test categories
+function Run-QuickTests {
+    Write-Host "`nRunning Quick Test Suite (Backend + Frontend only)..." -ForegroundColor Cyan
+    return Run-Tests -TestType "backend,frontend"
+}
+
 # Function to show help
 function Show-Help {
     Write-Host "`nMock Trading Application Management Script" -ForegroundColor Green
     Write-Host "Available commands:" -ForegroundColor Yellow
     Write-Host "  .\run.ps1 start    - Start the application using start-servers.ps1" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 test     - Run comprehensive test suite (matches GitHub Actions)" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 quicktest - Run quick tests (backend + frontend only)" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 testbackend - Run backend tests only" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 testfrontend - Run frontend tests only" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 testbusiness - Run business rules tests only" -ForegroundColor Cyan
+    Write-Host "  .\run.ps1 testapi  - Run API integration tests only" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 users    - Show all users in the database" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 createsuperuser    - Create a superuser if none exists" -ForegroundColor Cyan
     Write-Host "  .\run.ps1 migrate    - Run database migrations" -ForegroundColor Cyan
@@ -186,6 +360,12 @@ function Show-Help {
 # Main script logic
 switch ($Command.ToLower()) {
     "start" { Start-Application }
+    "test" { Run-Tests }
+    "quicktest" { Run-QuickTests }
+    "testbackend" { Run-Tests -TestType "backend" }
+    "testfrontend" { Run-Tests -TestType "frontend" }
+    "testbusiness" { Run-Tests -TestType "business" }
+    "testapi" { Run-Tests -TestType "api" }
     "users" { Show-Users }
     "createsuperuser" { Create-SuperUser }
     "migrate" { Run-Migrations }

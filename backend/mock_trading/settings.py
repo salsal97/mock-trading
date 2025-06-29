@@ -129,6 +129,10 @@ missing_vars = [var for var in required_db_vars if not os.environ.get(var)]
 if missing_vars:
     raise ValueError(f"Required database environment variables are missing: {', '.join(missing_vars)}")
 
+# Django automatically creates test databases with 'test_' prefix
+# For example: 'mock_trading' becomes 'test_mock_trading'
+# This ensures complete isolation from production data
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

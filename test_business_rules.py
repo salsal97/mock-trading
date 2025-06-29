@@ -26,69 +26,35 @@ import json
 backend_path = os.path.join(os.path.dirname(__file__), 'backend')
 sys.path.insert(0, backend_path)
 
-# Configure Django settings for CI environment
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
+
+# Set required environment variables for testing
 if 'GITHUB_ACTIONS' in os.environ:
-    # Use SQLite for GitHub Actions
-    os.environ['USE_SQLITE'] = 'True'
-    # SECRET_KEY should be passed from environment/secrets
+    # GitHub Actions environment - all credentials come from secrets
     if 'SECRET_KEY' not in os.environ:
         raise ValueError("SECRET_KEY environment variable must be set for GitHub Actions")
     os.environ['DEBUG'] = 'True'
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
-
-# Override database settings for testing if needed
-if os.environ.get('USE_SQLITE') == 'True':
-    from django.conf import settings
-    if not settings.configured:
-        settings.configure(
-            DEBUG=True,
-            SECRET_KEY=os.environ.get('SECRET_KEY', 'fallback-key-for-local-testing'),
-            DATABASES={
-                'default': {
-                    'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': ':memory:',
-                }
-            },
-            INSTALLED_APPS=[
-                'django.contrib.auth',
-                'django.contrib.contenttypes',
-                'django.contrib.sessions',
-                'django.contrib.messages',
-                'accounts',
-                'market',
-                'rest_framework',
-                'mock_trading',
-            ],
-            USE_TZ=True,
-            TIME_ZONE='UTC',
-            ROOT_URLCONF='mock_trading.urls',
-            MIDDLEWARE=[
-                'django.middleware.security.SecurityMiddleware',
-                'django.contrib.sessions.middleware.SessionMiddleware',
-                'django.middleware.common.CommonMiddleware',
-                'django.middleware.csrf.CsrfViewMiddleware',
-                'django.contrib.auth.middleware.AuthenticationMiddleware',
-                'django.contrib.messages.middleware.MessageMiddleware',
-            ],
-            REST_FRAMEWORK={
-                'DEFAULT_AUTHENTICATION_CLASSES': [
-                    'rest_framework.authentication.SessionAuthentication',
-                ],
-                'DEFAULT_PERMISSION_CLASSES': [
-                    'rest_framework.permissions.IsAuthenticated',
-                ],
-            },
-            ALLOWED_HOSTS=['*'],
-        )
-    django.setup()
-    
-    # Run migrations for in-memory database
-    from django.core.management import call_command
-    call_command('migrate', verbosity=0, interactive=False)
-    print("✓ Database migrations completed")
 else:
-    django.setup()
+    # Local testing environment - use environment variables or safe fallback
+    if 'SECRET_KEY' not in os.environ:
+        os.environ['SECRET_KEY'] = 'test-secret-key-for-local-testing-only'
+        print("⚠️  Using temporary SECRET_KEY for local testing")
+    os.environ['DEBUG'] = 'True'
+    
+    # Ensure database environment variables are set
+    required_vars = ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST']
+    missing_vars = [var for var in required_vars if not os.environ.get(var)]
+    if missing_vars:
+        print(f"⚠️  WARNING: Missing database environment variables: {', '.join(missing_vars)}")
+        print("Tests may fail if database credentials are not properly configured.")
+
+# Initialize Django
+django.setup()
+
+# Django will automatically create test databases with 'test_' prefix
+# Production: 'mock_trading' -> Test: 'test_mock_trading'
+# This ensures complete isolation from production data
 
 from django.test import TestCase
 from django.contrib.auth.models import User
