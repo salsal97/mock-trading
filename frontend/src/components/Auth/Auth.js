@@ -177,7 +177,7 @@ const Auth = () => {
                     {error && <div className="error-message">{error}</div>}
                     {success && <div className="success-message">{success}</div>}
 
-                    <form onSubmit={handleSubmit} className="auth-form">
+                    <form onSubmit={handleSubmit} className="auth-form" role="form">
                         <div className="form-group">
                             <label htmlFor="username">
                                 <span className="label-icon">👤</span>

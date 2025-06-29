@@ -47,8 +47,8 @@ describe('App Authentication Tests', () => {
   test('displays Oxford branding elements', () => {
     render(<App />);
     
-    // Check for Oxford logo and branding
-    const oxfordLogo = screen.getByText(/oxford/i);
+    // Check for specific Oxford logo text (not all Oxford text)
+    const oxfordLogo = screen.getByText('Oxford');
     expect(oxfordLogo).toBeInTheDocument();
     
     const brandTitle = screen.getByText(/welcome to oxford mock trading/i);
@@ -117,7 +117,7 @@ describe('App Authentication Tests', () => {
   test('form submission behavior', () => {
     render(<App />);
     
-    const form = screen.getByRole('form') || document.querySelector('form');
+    const form = screen.getByRole('form');
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);
     const submitButton = screen.getByRole('button', { name: /sign in to platform/i });
