@@ -24,13 +24,11 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        # Profile is automatically created by signals, so just get it
+        profile = user.profile
         
         self.assertEqual(profile.user, user)
-        self.assertEqual(profile.balance, Decimal('1000.00'))
+        self.assertEqual(profile.balance, Decimal('1000.00'))  # Default from model
         self.assertFalse(profile.is_verified)  # Default should be False
         self.assertIsNone(profile.verified_by)
         self.assertIsNone(profile.verification_date)
@@ -43,10 +41,9 @@ class UserProfileTestCase(TestCase):
             password='testpass123'
         )
         # Test negative balance (should be allowed for debt tracking)
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=-500.00
-        )
+        profile = user.profile  # Get automatically created profile
+        profile.balance = -500.00
+        profile.save()
         self.assertEqual(profile.balance, Decimal('-500.00'))
         
         # Test zero balance
@@ -68,20 +65,16 @@ class UserProfileTestCase(TestCase):
             is_staff=True,
             is_superuser=True
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        profile = user.profile  # Get automatically created profile
         
         # Initially not verified
         self.assertFalse(profile.is_verified)
         
         # Admin can verify users
-        admin_profile = UserProfile.objects.create(
-            user=admin,
-            balance=5000.00,
-            is_verified=True
-        )
+        admin_profile = admin.profile  # Get automatically created profile
+        admin_profile.balance = 5000.00
+        admin_profile.is_verified = True
+        admin_profile.save()
         
         # Verify the user
         profile.is_verified = True
@@ -101,10 +94,7 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        profile = user.profile  # Get automatically created profile
         
         expected = f"{user.username} - Balance: $1000.00"
         self.assertEqual(str(profile), expected)
@@ -116,21 +106,20 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        # Create first profile
-        UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        # Profile is automatically created by signals
+        profile1 = user.profile
         
-        # Attempting to create second profile should work (no unique constraint)
-        # but in practice, the application should use get_or_create
-        profile2 = UserProfile.objects.create(
-            user=user,
-            balance=2000.00
-        )
+        # Verify only one profile exists initially
+        initial_count = UserProfile.objects.filter(user=user).count()
+        self.assertEqual(initial_count, 1)
         
-        # Both profiles exist, but this is why we use get_or_create in practice
-        self.assertEqual(UserProfile.objects.filter(user=user).count(), 2)
+        # Attempting to create second profile should raise IntegrityError due to unique constraint
+        from django.db import IntegrityError
+        with self.assertRaises(IntegrityError):
+            UserProfile.objects.create(
+                user=user,
+                balance=2000.00
+            )
 
     def test_admin_user_properties(self):
         """Test that admin users have correct properties"""
@@ -141,11 +130,10 @@ class UserProfileTestCase(TestCase):
             is_staff=True,
             is_superuser=True
         )
-        admin_profile = UserProfile.objects.create(
-            user=admin,
-            balance=10000.00,
-            is_verified=True
-        )
+        admin_profile = admin.profile  # Get automatically created profile
+        admin_profile.balance = 10000.00
+        admin_profile.is_verified = True
+        admin_profile.save()
         
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)
@@ -158,10 +146,7 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        profile = user.profile  # Get automatically created profile
         
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
@@ -174,10 +159,9 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1234.56789  # More precision than expected
-        )
+        profile = user.profile  # Get automatically created profile
+        profile.balance = 1234.56789  # More precision than expected
+        profile.save()
         
         # Should maintain 2 decimal places for currency
         profile.refresh_from_db()
@@ -190,10 +174,7 @@ class UserProfileTestCase(TestCase):
             email=f'testuser_{uuid.uuid4()}@example.com',
             password='testpass123'
         )
-        profile = UserProfile.objects.create(
-            user=user,
-            balance=1000.00
-        )
+        profile = user.profile  # Get automatically created profile
         
         profile_id = profile.id
         user_id = user.id

@@ -39,14 +39,14 @@ else:
     # Local testing environment - use environment variables or safe fallback
     if 'SECRET_KEY' not in os.environ:
         os.environ['SECRET_KEY'] = 'test-secret-key-for-local-testing-only'
-        print("⚠️  Using temporary SECRET_KEY for local testing")
+        print("WARNING: Using temporary SECRET_KEY for local testing")
     os.environ['DEBUG'] = 'True'
     
     # Ensure database environment variables are set
     required_vars = ['DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST']
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
-        print(f"⚠️  WARNING: Missing database environment variables: {', '.join(missing_vars)}")
+        print(f"WARNING: Missing database environment variables: {', '.join(missing_vars)}")
         print("Tests may fail if database credentials are not properly configured.")
 
 # Initialize Django
@@ -182,7 +182,7 @@ class BusinessRulesTestCase(TestCase):
         self.assertEqual(self.market.final_spread_low, 45)
         self.assertEqual(self.market.final_spread_high, 55)
         
-        print("✓ Auto-activation with bids works correctly")
+        print("Auto-activation with bids works correctly")
     
     def test_rule_1_no_auto_activation_without_bids(self):
         """Rule 1: No auto-activation when no bids exist even if bidding window is closed"""
@@ -203,7 +203,7 @@ class BusinessRulesTestCase(TestCase):
         self.market.refresh_from_db()
         self.assertEqual(self.market.status, 'CREATED')
         
-        print("✓ Auto-activation correctly prevented without bids")
+        print("Auto-activation correctly prevented without bids")
     
     def test_rule_1_admin_force_activation_with_bids(self):
         """Rule 1b: Admin can forcefully activate market using auto activate button (with bids)"""
@@ -245,7 +245,7 @@ class BusinessRulesTestCase(TestCase):
             self.market.refresh_from_db()
             self.assertEqual(self.market.status, 'OPEN')
             self.assertEqual(self.market.market_maker, self.user1)
-            print("✓ API admin force activation works correctly")
+            print("API admin force activation works correctly")
     
     def test_rule_1_admin_force_activation_without_bids_fails(self):
         """New Rule: Admin cannot activate market without bids - no default spread high"""
@@ -253,7 +253,7 @@ class BusinessRulesTestCase(TestCase):
         
         # Test model-level validation (skip API test in CI environment)  
         if os.environ.get('GITHUB_ACTIONS'):
-            print("⚠️ Skipping API test in CI environment - testing model logic only")
+            print("Skipping API test in CI environment - testing model logic only")
             
             # Even with admin force (closing bidding window), should fail without bids
             self.market.spread_bidding_close_trading_open = timezone.now() - timedelta(minutes=1)
@@ -270,7 +270,7 @@ class BusinessRulesTestCase(TestCase):
             # Verify market is still CREATED
             self.market.refresh_from_db()
             self.assertEqual(self.market.status, 'CREATED')
-            print("✓ Model-level activation prevention works correctly")
+            print("Model-level activation prevention works correctly")
         else:
             # Run full API test in local environment
             self.client.force_authenticate(user=self.admin)
@@ -280,7 +280,7 @@ class BusinessRulesTestCase(TestCase):
             # Verify market is still CREATED
             self.market.refresh_from_db()
             self.assertEqual(self.market.status, 'CREATED')
-            print("✓ API activation prevention works correctly")
+            print("API activation prevention works correctly")
     
     def test_rule_2_cannot_bid_outside_windows(self):
         """Rule 2: You cannot bid outside bidding windows"""
@@ -328,7 +328,7 @@ class BusinessRulesTestCase(TestCase):
             )
         self.assertIn("not currently active", str(context.exception))
         
-        print("✓ Bidding correctly prevented outside windows")
+        print("Bidding correctly prevented outside windows")
     
     def test_rule_3_first_come_first_serve_tiebreaker(self):
         """Rule 3: Tie breaker for market maker is first come first serve"""
@@ -362,7 +362,7 @@ class BusinessRulesTestCase(TestCase):
         self.assertEqual(best_bid, bid1, "First bid should win tiebreaker")
         self.assertEqual(best_bid.user, self.user1, "User1 should win tiebreaker")
         
-        print("✓ First come first serve tiebreaker works correctly")
+        print("First come first serve tiebreaker works correctly")
     
     def test_rule_4_no_financial_requirement(self):
         """Rule 4: No financial requirement to participate (balance ignored for spread bidding)"""
@@ -393,7 +393,7 @@ class BusinessRulesTestCase(TestCase):
         
         self.assertIsNotNone(bid, "User with zero balance should be able to place spread bid")
         
-        print("✓ No financial requirement for spread bidding works correctly")
+        print("No financial requirement for spread bidding works correctly")
     
     def test_rule_5_positive_spread_values_only(self):
         """Rule 5: Spread bid values should only be positive numbers"""
@@ -438,7 +438,7 @@ class BusinessRulesTestCase(TestCase):
         )
         self.assertIsNotNone(bid, "Positive values should be accepted")
         
-        print("✓ Positive spread values validation works correctly")
+        print("Positive spread values validation works correctly")
     
     def test_rule_7_market_maker_cannot_trade(self):
         """Rule 7: Market maker cannot place trades on their own market"""
@@ -479,7 +479,7 @@ class BusinessRulesTestCase(TestCase):
         )
         self.assertIsNotNone(trade, "Regular user should be able to trade")
         
-        print("✓ Market maker trading restriction works correctly")
+        print("Market maker trading restriction works correctly")
     
     def test_rule_7_trading_prices(self):
         """Rule 7: Buyers pay market maker HIGH, sellers pay market maker LOW"""
@@ -529,7 +529,7 @@ class BusinessRulesTestCase(TestCase):
             )
         self.assertIn("HIGH price", str(context.exception))
         
-        print("✓ Trading price enforcement works correctly")
+        print("Trading price enforcement works correctly")
     
     def test_rule_9_only_admins_create_markets(self):
         """Rule 9: Only admins can create markets"""
@@ -537,7 +537,7 @@ class BusinessRulesTestCase(TestCase):
         
         # Test model-level logic (skip API test in CI environment)
         if os.environ.get('GITHUB_ACTIONS'):
-            print("⚠️ Skipping API test in CI environment - testing model logic only")
+            print("Skipping API test in CI environment - testing model logic only")
             
             # Test admin can create market directly
             now = timezone.now()
@@ -551,11 +551,11 @@ class BusinessRulesTestCase(TestCase):
                 trading_close=now + timedelta(days=1)
             )
             self.assertEqual(admin_market.created_by, self.admin)
-            print("✓ Admin can create markets at model level")
+            print("Admin can create markets at model level")
             
             # Note: Permission checks happen at API level, not model level
             # Regular users are restricted by API permissions, not model constraints
-            print("✓ Model-level market creation works correctly")
+            print("Model-level market creation works correctly")
         else:
             # Run full API test in local environment
             self.client.force_authenticate(user=self.admin)
@@ -576,7 +576,7 @@ class BusinessRulesTestCase(TestCase):
             response = self.client.post('/api/market/', market_data, format='json')
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             
-            print("✓ API admin-only market creation works correctly")
+            print("API admin-only market creation works correctly")
     
     def test_rule_9_admins_cannot_bid(self):
         """Rule 9: Admins cannot participate in bidding"""
@@ -592,7 +592,7 @@ class BusinessRulesTestCase(TestCase):
             )
         self.assertIn("Administrators cannot place spread bids", str(context.exception))
         
-        print("✓ Admin bidding restriction works correctly")
+        print("Admin bidding restriction works correctly")
     
     def test_rule_9_admins_cannot_trade(self):
         """Rule 9: Admins cannot trade on markets"""
@@ -622,7 +622,7 @@ class BusinessRulesTestCase(TestCase):
             )
         self.assertIn("Administrators cannot place trades", str(context.exception))
         
-        print("✓ Admin trading restriction works correctly")
+        print("Admin trading restriction works correctly")
     
     def test_rule_10_virtual_money_balance_tracking(self):
         """Rule 10: Virtual money only - balance tracking works"""
@@ -685,19 +685,19 @@ class BusinessRulesTestCase(TestCase):
                 else:
                     print(f"Response content: {response.content}")
                 # Don't fail the test if API has issues - we tested the core logic above
-                print("⚠️ API test failed but core balance logic works")
+                print("WARNING: API test failed but core balance logic works")
             else:
-                print("✅ API test also passed")
+                print("API test also passed")
         except Exception as e:
-            print(f"⚠️ API test failed with exception: {e}")
+            print(f"WARNING: API test failed with exception: {e}")
             print("Core balance logic works correctly")
         
-        print("✓ Virtual money balance tracking works correctly")
+        print("Virtual money balance tracking works correctly")
 
 
 def run_business_rules_tests():
     """Run all business rules tests"""
-    print("🧪 Starting Business Rules Test Suite")
+    print("STARTING Business Rules Test Suite")
     print("=" * 50)
     
     # Create a test suite
@@ -708,9 +708,9 @@ def run_business_rules_tests():
     
     print("\n" + "=" * 50)
     if result.wasSuccessful():
-        print("✅ All business rules tests PASSED!")
+        print("SUCCESS: All business rules tests PASSED!")
     else:
-        print("❌ Some business rules tests FAILED!")
+        print("FAILURE: Some business rules tests FAILED!")
         print(f"Failures: {len(result.failures)}")
         print(f"Errors: {len(result.errors)}")
     

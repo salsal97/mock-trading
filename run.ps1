@@ -182,7 +182,7 @@ function Run-Tests {
     $testsPassed = $true
     
     if ($TestType -eq "all" -or $TestType -eq "backend") {
-        Write-Host "`n🐍 Running Backend Tests..." -ForegroundColor Yellow
+        Write-Host "`n[PYTHON] Running Backend Tests..." -ForegroundColor Yellow
         Set-Location backend
         .\venv\Scripts\activate
         
@@ -193,7 +193,7 @@ function Run-Tests {
         
         # Test database models
         Write-Host "Testing database models..."
-        python -c "
+        python -c @"
 import os, django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mock_trading.settings')
 django.setup()
@@ -218,7 +218,7 @@ profile, created = UserProfile.objects.get_or_create(
     user=user,
     defaults={'balance': 1000.0, 'is_verified': True}
 )
-print(f'✓ Created user: {user.username}')
+print(f'[OK] Created user: {user.username}')
 
 now = timezone.now()
 market = Market.objects.create(
@@ -230,16 +230,16 @@ market = Market.objects.create(
     trading_close=now + timedelta(hours=2),
     created_by=user
 )
-print(f'✓ Created market: {market.id}')
+print(f'[OK] Created market: {market.id}')
 print('=== All model tests passed ===')
-"
+"@
         if ($LASTEXITCODE -ne 0) { $testsPassed = $false }
         
         Set-Location ..
     }
     
     if ($TestType -eq "all" -or $TestType -eq "frontend") {
-        Write-Host "`n⚛️ Running Frontend Tests..." -ForegroundColor Yellow
+        Write-Host "[REACT] Running Frontend Tests..." -ForegroundColor Yellow
         Set-Location frontend
         
         # Install dependencies if needed
@@ -263,12 +263,11 @@ print('=== All model tests passed ===')
     }
     
     if ($TestType -eq "all" -or $TestType -eq "business") {
-        Write-Host "`n🎯 Running Business Rules Tests..." -ForegroundColor Yellow
+        Write-Host "[RULES] Running Business Rules Tests..." -ForegroundColor Yellow
         
         # Set environment variables for business rules tests (NO HARDCODED PASSWORDS)
         if (-not $env:SECRET_KEY) {
-            $env:SECRET_KEY = "test-secret-key-for-local-testing-only"
-            Write-Host "⚠️  Using temporary SECRET_KEY for testing" -ForegroundColor Yellow
+            Write-Host "[WARN] Using temporary SECRET_KEY for testing" -ForegroundColor Yellow
         }
         $env:DEBUG = "True"
         
@@ -277,7 +276,7 @@ print('=== All model tests passed ===')
     }
     
     if ($TestType -eq "all" -or $TestType -eq "api") {
-        Write-Host "`n🔗 Running API Integration Tests..." -ForegroundColor Yellow
+        Write-Host "[API] Running API Integration Tests..." -ForegroundColor Yellow
         
         # Start backend server for API tests
         Write-Host "Starting backend server for API tests..."
@@ -301,9 +300,9 @@ print('=== All model tests passed ===')
         # Test server health
         try {
             $response = Invoke-RestMethod -Uri "http://localhost:8000/" -Method GET -TimeoutSec 5
-            Write-Host "✓ Server is responding"
+            Write-Host "[OK] Server is responding"
         } catch {
-            Write-Host "⚠️ Server not responding, continuing with tests..."
+            Write-Host "[WARN] Server not responding, continuing with tests..."
         }
         
         # Run API tests
@@ -322,10 +321,10 @@ print('=== All model tests passed ===')
     # Report results
     Write-Host "`n" -NoNewline
     if ($testsPassed) {
-        Write-Host "🎉 All Tests Passed!" -ForegroundColor Green
+        Write-Host "[SUCCESS] All Tests Passed!" -ForegroundColor Green
         Write-Host "Your application is ready for deployment!" -ForegroundColor Green
     } else {
-        Write-Host "❌ Some Tests Failed!" -ForegroundColor Red
+        Write-Host "[FAIL] Some Tests Failed!" -ForegroundColor Red
         Write-Host "Please fix the failing tests before proceeding." -ForegroundColor Red
     }
     

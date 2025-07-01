@@ -1,11 +1,12 @@
 # Setup Git Hooks for Mock Trading Application
-# This script configures Git to automatically run fast quality checks before commits
+# Configures comprehensive testing locally to save GitHub Actions costs
 
-Write-Host "🔧 Setting up Git hooks for Mock Trading Application..." -ForegroundColor Green
+Write-Host "Setting up comprehensive Git hooks for Mock Trading Application..." -ForegroundColor Green
+Write-Host "This will run the same tests as GitHub Actions locally to save CI/CD costs!" -ForegroundColor Yellow
 
 # Check if .git directory exists
 if (-not (Test-Path ".git")) {
-    Write-Host "❌ Error: Not in a Git repository!" -ForegroundColor Red
+    Write-Host "Error: Not in a Git repository!" -ForegroundColor Red
     Write-Host "Please run this script from the project root directory." -ForegroundColor Yellow
     exit 1
 }
@@ -16,32 +17,39 @@ if (-not (Test-Path $hooksDir)) {
     New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
 }
 
-# Create pre-commit hook (PowerShell)
+# Create comprehensive pre-commit hook (PowerShell)
 $preCommitHook = @"
 # Git pre-commit hook for Mock Trading Application (PowerShell)
-# This hook runs fast quality checks before each commit
+# Runs comprehensive tests locally to save CI/CD costs and catch issues early
 
-Write-Host "🔍 Running pre-commit quality checks..." -ForegroundColor Cyan
+Write-Host "Running comprehensive pre-commit test suite..." -ForegroundColor Cyan
+Write-Host "This mirrors GitHub Actions to save CI/CD costs" -ForegroundColor Gray
+Write-Host ""
 
 try {
-    # Run the simplified pre-commit checks
-    `$result = & powershell.exe -ExecutionPolicy Bypass -File "./test-before-commit.ps1"
+    # Run comprehensive test suite (skip integration tests for speed)
+    `$result = & powershell.exe -ExecutionPolicy Bypass -File "./test-before-commit.ps1" -SkipIntegration
     `$exitCode = `$LASTEXITCODE
     
     if (`$exitCode -eq 0) {
-        Write-Host "✅ Pre-commit checks passed! Proceeding with commit..." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Pre-commit tests passed! Proceeding with commit..." -ForegroundColor Green
+        Write-Host "Your code meets GitHub Actions standards locally." -ForegroundColor Green
         exit 0
     } else {
-        Write-Host "❌ Pre-commit checks failed!" -ForegroundColor Red
         Write-Host ""
-        Write-Host "💡 To skip this check: git commit --no-verify" -ForegroundColor Yellow
-        Write-Host "💡 To force through: git commit --no-verify" -ForegroundColor Yellow
+        Write-Host "Pre-commit tests failed!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Options to proceed:" -ForegroundColor Yellow
+        Write-Host "  git commit --no-verify                    (skip all hooks)" -ForegroundColor Gray
+        Write-Host "  .\test-before-commit.ps1 -Force           (force through)" -ForegroundColor Gray
+        Write-Host "  .\test-before-commit.ps1                  (run with integration tests)" -ForegroundColor Gray
         exit 1
     }
 } catch {
-    Write-Host "⚠️  Error running pre-commit checks: `$(`$_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error running pre-commit tests: `$(`$_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
-    Write-Host "💡 Please run checks manually: .\test-before-commit.ps1" -ForegroundColor Yellow
+    Write-Host "Please run tests manually: .\test-before-commit.ps1" -ForegroundColor Yellow
     exit 1
 }
 "@
@@ -64,24 +72,32 @@ powershell.exe -ExecutionPolicy Bypass -File ".git/hooks/pre-commit.ps1"
 "@
     $hookWrapper | Out-File -FilePath $hookPath -Encoding UTF8
     
-    Write-Host "✅ PowerShell pre-commit hook created successfully!" -ForegroundColor Green
+    Write-Host "Comprehensive pre-commit hook created successfully!" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️  Error creating hook: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "✅ Basic hook created - may need manual configuration." -ForegroundColor Green
+    Write-Host "Error creating hook: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "Basic hook created - may need manual configuration." -ForegroundColor Green
 }
 
 Write-Host ""
-Write-Host "🎯 Git Hook Configuration Complete!" -ForegroundColor Green
+Write-Host "Git Hook Configuration Complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "What happens now:" -ForegroundColor Cyan
-Write-Host "- Before each commit, Git will run fast quality checks (~3-5 seconds)" -ForegroundColor White
-Write-Host "- Checks: Frontend build + critical test + Django system check" -ForegroundColor White
-Write-Host "- If checks pass: commit proceeds normally" -ForegroundColor Green
-Write-Host "- If checks fail: commit is blocked" -ForegroundColor Red
+Write-Host "- Before each commit, Git will run comprehensive tests locally" -ForegroundColor White
+Write-Host "- Tests: Backend Django + Frontend React + Business Rules" -ForegroundColor White
+Write-Host "- Same tests as GitHub Actions (saves CI/CD costs!)" -ForegroundColor Green
+Write-Host "- Integration tests skipped by default for speed" -ForegroundColor White
+Write-Host "- If tests pass: commit proceeds normally" -ForegroundColor Green
+Write-Host "- If tests fail: commit is blocked" -ForegroundColor Red
 Write-Host ""
 Write-Host "Commands:" -ForegroundColor Yellow
-Write-Host "  git commit -m 'message'     # Normal commit (runs checks)" -ForegroundColor White
-Write-Host "  git commit --no-verify      # Skip hook (when needed)" -ForegroundColor White
-Write-Host "  .\test-before-commit.ps1    # Manual check run" -ForegroundColor White
+Write-Host "  git commit -m 'message'                      # Normal commit (runs tests)" -ForegroundColor White
+Write-Host "  git commit --no-verify                       # Skip hook (when needed)" -ForegroundColor White
+Write-Host "  .\test-before-commit.ps1                     # Manual full test run" -ForegroundColor White
+Write-Host "  .\test-before-commit.ps1 -SkipIntegration    # Manual test run (faster)" -ForegroundColor White
 Write-Host ""
-Write-Host "💡 To test the hook, try making a commit now!" -ForegroundColor Gray
+Write-Host "Benefits:" -ForegroundColor Green
+Write-Host "- Saves GitHub Actions minutes and costs" -ForegroundColor White
+Write-Host "- Catches issues before pushing to remote" -ForegroundColor White
+Write-Host "- Ensures code quality matches CI/CD standards" -ForegroundColor White
+Write-Host ""
+Write-Host "To test the hook, try making a commit now!" -ForegroundColor Gray

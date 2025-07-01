@@ -113,11 +113,12 @@ DATABASES = {
     }
 }
 
-# For production or when SSL is explicitly required
-if os.environ.get('DB_REQUIRE_SSL', '').lower() == 'true':
+# Azure PostgreSQL requires SSL connections
+if os.environ.get('DB_HOST', '').endswith('.postgres.database.azure.com') or os.environ.get('DB_REQUIRE_SSL', '').lower() == 'true':
     DATABASES['default']['OPTIONS'] = {
         'sslmode': 'require',
     }
+    print("SSL connection enabled for Azure PostgreSQL")
 
 # For testing, ensure no SSL requirement
 if 'test' in sys.argv or os.environ.get('GITHUB_ACTIONS'):
