@@ -1,27 +1,23 @@
 from rest_framework import serializers
-from django.contrib.auth.models import User
 from django.utils import timezone
 from .models import Market, SpreadBid, Trade
-import logging
-
-logger = logging.getLogger(__name__)
 
 class MarketSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    market_maker_username = serializers.CharField(source='market_maker.username', read_only=True)
     is_spread_bidding_active = serializers.ReadOnlyField()
     is_trading_active = serializers.ReadOnlyField()
     can_be_settled = serializers.ReadOnlyField()
     current_spread_display = serializers.ReadOnlyField()
     best_spread_bid = serializers.SerializerMethodField()
+    position_display = serializers.SerializerMethodField()
+    top_quotes = serializers.SerializerMethodField()
+    personal_rank = serializers.SerializerMethodField()
+    unit_value = serializers.DecimalField(source='unit_price', max_digits=10, decimal_places=2, read_only=True)
     current_best_spread_width = serializers.ReadOnlyField()
     
-    # Add timezone debugging fields
-    server_time = serializers.SerializerMethodField()
-    timezone_info = serializers.SerializerMethodField()
     
     # Add trade statistics
-    long_trades_count = serializers.ReadOnlyField()
-    short_trades_count = serializers.ReadOnlyField()
     total_trades_count = serializers.ReadOnlyField()
     user_trade = serializers.SerializerMethodField()
     can_user_trade = serializers.SerializerMethodField()
@@ -31,40 +27,66 @@ class MarketSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'premise',
-            'unit_price',
-            'initial_spread',
             'final_spread_low',
             'final_spread_high',
             'current_spread_display',
             'created_by',
             'created_by_username',
             'market_maker',
+            'market_maker_username',
             'market_maker_spread_low',
             'market_maker_spread_high',
             'status',
             'spread_bidding_open',
             'spread_bidding_close_trading_open',
             'trading_close',
-            'outcome',
+            'settlement_price',
+            'settled_at',
+            'settlement_confirmed',
+            'settlement_preview_calculated',
             'is_spread_bidding_active',
             'is_trading_active',
             'can_be_settled',
-            'best_spread_bid',
+            'best_spread_bid', 'position_display', 'top_quotes', 'personal_rank', 'unit_value',
             'current_best_spread_width',
             'created_at',
             'updated_at',
-            'server_time',
-            'timezone_info',
-            'long_trades_count',
-            'short_trades_count',
             'total_trades_count',
             'user_trade',
             'can_user_trade'
         ]
         read_only_fields = ['created_at', 'updated_at', 'final_spread_low', 'final_spread_high']
     
+    def get_position_display(self, obj):
+        result = {}
+        for label, position in (('buyers', 'LONG'), ('sellers', 'SHORT')):
+            names = list(obj.trades.filter(position=position).values_list('user__username', flat=True))
+            request = self.context.get('request')
+            authenticated = request and request.user.is_authenticated
+            result[label] = {'count': len(names), 'names': names if authenticated and len(names) <= 7 else []}
+        return result
+
+    def _ranked_quotes(self, obj):
+        latest = {}
+        for bid in obj.spread_bids.select_related('user').order_by('bid_time', 'id'):
+            latest[bid.user_id] = bid
+        return sorted(latest.values(), key=lambda b: (b.spread_width, b.bid_time, b.id))
+
+    def get_top_quotes(self, obj):
+        request = self.context.get('request')
+        return SpreadBidSerializer(self._ranked_quotes(obj)[:3], many=True).data if request and request.user.is_authenticated else []
+
+    def get_personal_rank(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return next((i for i, bid in enumerate(self._ranked_quotes(obj), 1) if bid.user_id == request.user.id), None)
+        return None
+
     def get_best_spread_bid(self, obj):
         """Get the best spread bid for this market"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
         best_bid = obj.best_spread_bid
         if best_bid:
             return {
@@ -75,18 +97,6 @@ class MarketSerializer(serializers.ModelSerializer):
             }
         return None
     
-    def get_server_time(self, obj):
-        """Return current server time for timezone debugging"""
-        return timezone.now()
-    
-    def get_timezone_info(self, obj):
-        """Return timezone information for debugging"""
-        return {
-            'server_timezone': str(timezone.get_current_timezone()),
-            'utc_offset': timezone.now().strftime('%z'),
-            'is_dst': timezone.now().dst() is not None
-        }
-    
     def get_user_trade(self, obj):
         """Get the current user's trade on this market (if any)"""
         request = self.context.get('request')
@@ -95,10 +105,8 @@ class MarketSerializer(serializers.ModelSerializer):
             if trade:
                 return {
                     'id': trade.id,
-                    'position': trade.position,
+                    'position': 'BUY' if trade.position == 'LONG' else 'SELL',
                     'price': trade.price,
-                    'quantity': trade.quantity,
-                    'total_value': trade.total_value,
                     'trade_time': trade.trade_time,
                     'updated_at': trade.updated_at
                 }
@@ -119,21 +127,24 @@ class MarketSerializer(serializers.ModelSerializer):
         }
 
 class MarketCreateSerializer(serializers.ModelSerializer):
+    unit_value = serializers.DecimalField(source='unit_price', max_digits=10, decimal_places=2, min_value=0.01)
     """Serializer for creating new markets"""
     
     class Meta:
         model = Market
         fields = [
             'premise',
-            'unit_price',
-            'initial_spread',
+            'unit_value',
             'spread_bidding_open',
             'spread_bidding_close_trading_open',
             'trading_close'
         ]
     
     def validate(self, data):
-        """Validate market timing"""
+        """Validate market timing and reject obsolete input fields."""
+        unknown = set(self.initial_data) - set(self.fields)
+        if unknown:
+            raise serializers.ValidationError(f'Unknown fields: {", ".join(sorted(unknown))}')
         if data['spread_bidding_open'] >= data['spread_bidding_close_trading_open']:
             raise serializers.ValidationError(
                 "Spread bidding close & trading open must be after spread bidding open"
@@ -144,169 +155,29 @@ class MarketCreateSerializer(serializers.ModelSerializer):
                 "Trading close must be after spread bidding close & trading open"
             )
         
-        if data['initial_spread'] <= 0:
-            raise serializers.ValidationError(
-                "Initial spread must be greater than 0"
-            )
-        
-        return data
-
-class MarketUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating market status, outcome, and final spread"""
-    
-    class Meta:
-        model = Market
-        fields = ['status', 'outcome', 'final_spread_low', 'final_spread_high']
-    
-    def validate(self, data):
-        """Validate status transitions and spread updates"""
-        instance = self.instance
-        new_status = data.get('status', instance.status)
-        
-        # Define valid status transitions
-        valid_transitions = {
-            'CREATED': ['OPEN'],
-            'OPEN': ['CLOSED'],
-            'CLOSED': ['SETTLED'],
-            'SETTLED': []  # No transitions from settled
-        }
-        
-        if new_status != instance.status:
-            if new_status not in valid_transitions.get(instance.status, []):
-                raise serializers.ValidationError(
-                    f"Cannot transition from {instance.status} to {new_status}"
-                )
-        
-        # Outcome is required when settling
-        if new_status == 'SETTLED' and not data.get('outcome'):
-            raise serializers.ValidationError(
-                "Outcome is required when settling a market"
-            )
-        
-        # Validate final spread if provided
-        final_low = data.get('final_spread_low')
-        final_high = data.get('final_spread_high')
-        
-        if final_low is not None and final_high is not None:
-            if final_low >= final_high:
-                raise serializers.ValidationError(
-                    "Final spread high must be greater than final spread low"
-                )
-        elif final_low is not None or final_high is not None:
-            raise serializers.ValidationError(
-                "Both final_spread_low and final_spread_high must be provided together"
-            )
+        if data['unit_price'] <= 0:
+            raise serializers.ValidationError('Unit value must be positive')
         
         return data
 
 class MarketEditSerializer(serializers.ModelSerializer):
-    """Comprehensive serializer for admin editing of markets"""
-    
-    # Add explicit field definitions for better type handling
-    unit_price = serializers.FloatField()
-    initial_spread = serializers.IntegerField()
-    outcome = serializers.IntegerField(required=False, allow_null=True)
-    
+    unit_value = serializers.DecimalField(source='unit_price', max_digits=10, decimal_places=2, min_value=0.01, required=False)
+
     class Meta:
         model = Market
-        fields = [
-            'premise',
-            'unit_price',
-            'initial_spread',
-            'spread_bidding_open',
-            'spread_bidding_close_trading_open',
-            'trading_close',
-            'status',
-            'outcome'
-        ]
-    
+        fields = ['premise', 'unit_value', 'spread_bidding_open', 'spread_bidding_close_trading_open', 'trading_close']
+
     def validate(self, data):
-        """Validate market data with business rules"""
         instance = self.instance
-        
-        # Get current or new values
-        premise = data.get('premise', instance.premise)
-        unit_price = data.get('unit_price', instance.unit_price)
-        initial_spread = data.get('initial_spread', instance.initial_spread)
-        spread_bidding_open = data.get('spread_bidding_open', instance.spread_bidding_open)
-        spread_bidding_close_trading_open = data.get('spread_bidding_close_trading_open', instance.spread_bidding_close_trading_open)
-        trading_close = data.get('trading_close', instance.trading_close)
-        new_status = data.get('status', instance.status)
-        
-        # Basic validations
-        if unit_price <= 0:
-            raise serializers.ValidationError("Unit price must be greater than 0")
-        
-        if initial_spread <= 0:
-            raise serializers.ValidationError("Initial spread must be greater than 0")
-        
-        # Timing validations
-        if spread_bidding_open >= spread_bidding_close_trading_open:
-            raise serializers.ValidationError(
-                "Spread bidding close & trading open must be after spread bidding open"
-            )
-        
-        if spread_bidding_close_trading_open >= trading_close:
-            raise serializers.ValidationError(
-                "Trading close must be after spread bidding close & trading open"
-            )
-        
-        # Business rule validations based on current state
-        now = timezone.now()
-        
-        # If market has started (has bids or is past bidding phase), restrict certain changes
-        if instance.spread_bids.exists() or now > instance.spread_bidding_open:
-            # Don't allow changing core market parameters if bidding has started
-            if (data.get('premise') and data['premise'] != instance.premise):
-                raise serializers.ValidationError(
-                    "Cannot change market premise after bidding has started"
-                )
-            
-            if (data.get('initial_spread') and data['initial_spread'] != instance.initial_spread):
-                raise serializers.ValidationError(
-                    "Cannot change initial spread after bidding has started"
-                )
-        
-        # If market is past spread bidding phase, don't allow changing bidding times
-        if now > instance.spread_bidding_close_trading_open:
-            if (data.get('spread_bidding_open') and 
-                data['spread_bidding_open'] != instance.spread_bidding_open):
-                raise serializers.ValidationError(
-                    "Cannot change spread bidding times after bidding has closed"
-                )
-            
-            if (data.get('spread_bidding_close_trading_open') and 
-                data['spread_bidding_close_trading_open'] != instance.spread_bidding_close_trading_open):
-                raise serializers.ValidationError(
-                    "Cannot change spread bidding times after bidding has closed"
-                )
-        
-        # Status transition validation
-        valid_transitions = {
-            'CREATED': ['OPEN'],  # Allow only through proper activation
-            'OPEN': ['CLOSED'],
-            'CLOSED': ['SETTLED'],
-            'SETTLED': []
-        }
-        
-        if new_status != instance.status:
-            if new_status not in valid_transitions.get(instance.status, []):
-                raise serializers.ValidationError(
-                    f"Cannot transition from {instance.status} to {new_status}"
-                )
-            
-            # Special validation for CREATED -> OPEN transition
-            if instance.status == 'CREATED' and new_status == 'OPEN':
-                raise serializers.ValidationError(
-                    "Cannot directly set market to OPEN status. Use the manual_activate endpoint to properly activate the market."
-                )
-        
-        # Outcome validation
-        if new_status == 'SETTLED' and not data.get('outcome'):
-            raise serializers.ValidationError(
-                "Outcome is required when settling a market"
-            )
-        
+        start = data.get('spread_bidding_open', instance.spread_bidding_open)
+        bidding_close = data.get('spread_bidding_close_trading_open', instance.spread_bidding_close_trading_open)
+        close = data.get('trading_close', instance.trading_close)
+        if not start < bidding_close < close:
+            raise serializers.ValidationError('Deadlines must be in order')
+        if data.get('premise', instance.premise) != instance.premise and (instance.spread_bids.exists() or timezone.now() > instance.spread_bidding_open):
+            raise serializers.ValidationError('Cannot change question after bidding starts')
+        if instance.status != 'CREATED' and ('spread_bidding_open' in data or 'spread_bidding_close_trading_open' in data):
+            raise serializers.ValidationError('Bidding deadlines cannot be changed after activation')
         return data
 
 class SpreadBidSerializer(serializers.ModelSerializer):
@@ -332,6 +203,8 @@ class SpreadBidSerializer(serializers.ModelSerializer):
 
 
 class SpreadBidCreateSerializer(serializers.ModelSerializer):
+    spread_low = serializers.IntegerField(min_value=1, max_value=99999999)
+    spread_high = serializers.IntegerField(min_value=1, max_value=99999999)
     """Serializer for creating new spread bids"""
     
     class Meta:
@@ -345,12 +218,9 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
         spread_low = data['spread_low']
         spread_high = data['spread_high']
         
-        # Check if user is verified
-        if not hasattr(user, 'profile') or not user.profile.is_verified:
-            raise serializers.ValidationError(
-                "Only verified users can place spread bids"
-            )
-        
+        if market.created_by_id == user.id:
+            raise serializers.ValidationError("Market administrator cannot bid")
+
         # Check if market is in CREATED state
         if market.status != 'CREATED':
             raise serializers.ValidationError(
@@ -359,7 +229,7 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
         
         # Check if spread bidding window is active
         now = timezone.now()
-        if not (market.spread_bidding_open <= now <= market.spread_bidding_close_trading_open):
+        if not (market.spread_bidding_open <= now < market.spread_bidding_close_trading_open):
             raise serializers.ValidationError(
                 "Spread bidding is not currently active for this market"
             )
@@ -377,20 +247,6 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
                 "Spread width must be positive"
             )
         
-        # Check if this bid is tighter than the current best spread
-        current_best_width = market.current_best_spread_width
-        if new_spread_width >= current_best_width:
-            raise serializers.ValidationError(
-                f"New bid must be tighter than current best spread width of {current_best_width}"
-            )
-        
-        # Check if this bid is tighter than user's previous bids
-        user_best_bid = market.get_user_best_bid(user)
-        if user_best_bid and new_spread_width >= user_best_bid.spread_width:
-            raise serializers.ValidationError(
-                f"New bid must be tighter than your previous best bid of {user_best_bid.spread_width}"
-            )
-        
         return data
     
     def create(self, validated_data):
@@ -400,121 +256,12 @@ class SpreadBidCreateSerializer(serializers.ModelSerializer):
 
 
 class TradeSerializer(serializers.ModelSerializer):
-    """Serializer for displaying trades"""
     user_username = serializers.CharField(source='user.username', read_only=True)
-    market_premise = serializers.CharField(source='market.premise', read_only=True)
-    is_long = serializers.ReadOnlyField()
-    is_short = serializers.ReadOnlyField()
-    total_value = serializers.ReadOnlyField()
-    
+    position = serializers.SerializerMethodField()
+
     class Meta:
         model = Trade
-        fields = [
-            'id',
-            'market',
-            'market_premise',
-            'user',
-            'user_username',
-            'position',
-            'price',
-            'quantity',
-            'total_value',
-            'is_long',
-            'is_short',
-            'trade_time',
-            'updated_at'
-        ]
-        read_only_fields = ['trade_time', 'updated_at', 'user']
+        fields = ['id', 'user_username', 'position', 'price', 'trade_time', 'updated_at']
 
-
-class TradeCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new trades"""
-    
-    class Meta:
-        model = Trade
-        fields = ['market', 'position', 'price', 'quantity']
-    
-    def validate(self, data):
-        """Validate trade creation rules"""
-        market = data['market']
-        user = self.context['request'].user
-        position = data['position']
-        price = data['price']
-        quantity = data.get('quantity', 1)
-        
-        # Check if user can trade on this market
-        can_trade, reason = market.can_user_trade(user)
-        if not can_trade:
-            raise serializers.ValidationError(reason)
-        
-        # Check if market is open for trading
-        if not market.is_trading_active:
-            raise serializers.ValidationError("Market is not open for trading")
-        
-        # Validate price is within market spread
-        if market.final_spread_low is not None and market.final_spread_high is not None:
-            if position == 'LONG' and price < market.final_spread_high:
-                raise serializers.ValidationError(
-                    f"Long position price must be at least {market.final_spread_high}"
-                )
-            elif position == 'SHORT' and price > market.final_spread_low:
-                raise serializers.ValidationError(
-                    f"Short position price must be at most {market.final_spread_low}"
-                )
-        
-        # Validate quantity
-        if quantity <= 0:
-            raise serializers.ValidationError("Quantity must be positive")
-        
-        # Validate price
-        if price <= 0:
-            raise serializers.ValidationError("Price must be positive")
-        
-        return data
-    
-    def create(self, validated_data):
-        """Create a new trade"""
-        validated_data['user'] = self.context['request'].user
-        return Trade.objects.create(**validated_data)
-
-
-class TradeUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating existing trades"""
-    
-    class Meta:
-        model = Trade
-        fields = ['position', 'price', 'quantity']
-    
-    def validate(self, data):
-        """Validate trade update rules"""
-        instance = self.instance
-        market = instance.market
-        
-        # Check if market is still open for trading
-        if not market.is_trading_active:
-            raise serializers.ValidationError("Cannot update trade - market is closed")
-        
-        # Get new values or keep existing ones
-        position = data.get('position', instance.position)
-        price = data.get('price', instance.price)
-        quantity = data.get('quantity', instance.quantity)
-        
-        # Validate price is within market spread
-        if market.final_spread_low is not None and market.final_spread_high is not None:
-            if position == 'LONG' and price < market.final_spread_high:
-                raise serializers.ValidationError(
-                    f"Long position price must be at least {market.final_spread_high}"
-                )
-            elif position == 'SHORT' and price > market.final_spread_low:
-                raise serializers.ValidationError(
-                    f"Short position price must be at most {market.final_spread_low}"
-                )
-        
-        # Validate quantity and price
-        if quantity <= 0:
-            raise serializers.ValidationError("Quantity must be positive")
-        
-        if price <= 0:
-            raise serializers.ValidationError("Price must be positive")
-        
-        return data 
+    def get_position(self, obj):
+        return 'BUY' if obj.position == 'LONG' else 'SELL'

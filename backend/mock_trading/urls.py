@@ -16,13 +16,14 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include, re_path
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, RedirectView
 from django.views.decorators.cache import never_cache
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    *[path(name, RedirectView.as_view(url='/static/' + name, permanent=False)) for name in ('favicon.ico', 'logo192.png', 'logo512.png', 'manifest.json', 'robots.txt')],
+    path('system-admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/market/', include('market.urls')),
 ]
@@ -35,5 +36,5 @@ urlpatterns += [
     # Root path specifically
     path('', never_cache(TemplateView.as_view(template_name='index.html')), name='home'),
     # Catch-all for React SPA routing (must be last)
-    re_path(r'^.*/$', never_cache(TemplateView.as_view(template_name='index.html'))),
+    re_path(r'^(?!api/|system-admin/).*/$', never_cache(TemplateView.as_view(template_name='index.html'))),
 ]

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDateTime } from '../../utils/dateUtils';
-import { getStatusColor, getStatusText } from '../../utils/marketUtils';
 import { apiGet, apiPost, handleApiError, shouldRedirectToLogin } from '../../utils/apiUtils';
 import '../../styles/common.css';
 import './Dashboard.css';
@@ -50,9 +49,8 @@ const Dashboard = () => {
     const handleTrade = async (marketId, position) => {
         try {
             setError('');
-            const response = await apiPost(`/api/market/${marketId}/place_trade/`, {
-                position: position,
-                quantity: 1
+            await apiPost(`/api/market/${marketId}/place_trade/`, {
+                position: position
             });
             
             alert(`${position} trade placed successfully!`);
@@ -87,7 +85,8 @@ const Dashboard = () => {
                     )}
                 </div>
                 <div className="header-actions">
-                    <button onClick={() => navigate('/trading')} className="btn btn-primary">
+                    <button onClick={() => navigate('/markets')} className="btn btn-primary">Market workspace</button>
+                    <button onClick={() => navigate('/markets')} className="btn btn-primary">
                         Trading
                     </button>
                     <button onClick={handleLogout} className="btn btn-outline">
@@ -113,7 +112,7 @@ const Dashboard = () => {
                     <div className="stat-label">Your Positions</div>
                 </div>
                 <div className="stat-card">
-                    <div className="stat-number">{markets.filter(m => !m.can_user_trade?.can_trade && m.status === 'OPEN').length}</div>
+                    <div className="stat-number">{markets.filter(m => m.market_maker_username === userData?.username && m.status === 'OPEN').length}</div>
                     <div className="stat-label">You're Market Maker</div>
                 </div>
             </div>
@@ -140,7 +139,7 @@ const Dashboard = () => {
                                             <span>Closes: {formatDateTime(market.trading_close)}</span>
                                         </div>
                                         <div className="trade-stats">
-                                            <span>{market.total_trades_count} trades ({market.long_trades_count} LONG, {market.short_trades_count} SHORT)</span>
+                                            {['buyers', 'sellers'].map(side => <div key={side}>{side.toUpperCase()}: {market.position_display?.[side]?.count > 7 ? market.position_display[side].count : market.position_display?.[side]?.names.join(', ') || 'None'}</div>)}
                                         </div>
                                     </div>
                                     
@@ -151,9 +150,9 @@ const Dashboard = () => {
                                                     <div className="position-badge position-badge-{market.user_trade.position.toLowerCase()}">
                                                         Your Position: {market.user_trade.position}
                                                     </div>
-                                                    <p>{market.user_trade.quantity} units @ ${market.user_trade.price}</p>
+                                                    <p>Entry: {market.user_trade.price}</p>
                                                     <button 
-                                                        onClick={() => navigate(`/trading?market=${market.id}`)}
+                                                        onClick={() => navigate('/markets')}
                                                         className="btn btn-secondary btn-small"
                                                     >
                                                         Manage Position
@@ -164,13 +163,13 @@ const Dashboard = () => {
                                                     <p className="trade-prompt">Choose your position:</p>
                                                     <div className="trade-buttons">
                                                         <button 
-                                                            onClick={() => handleTrade(market.id, 'LONG')}
+                                                            onClick={() => handleTrade(market.id, 'BUY')}
                                                             className="btn btn-success btn-small"
                                                         >
                                                             BUY ${market.market_maker_spread_high}
                                                         </button>
                                                         <button 
-                                                            onClick={() => handleTrade(market.id, 'SHORT')}
+                                                            onClick={() => handleTrade(market.id, 'SELL')}
                                                             className="btn btn-danger btn-small"
                                                         >
                                                             SELL ${market.market_maker_spread_low}
@@ -182,11 +181,11 @@ const Dashboard = () => {
                                     ) : (
                                         <div className="market-maker-info">
                                             <div className="market-maker-badge">
-                                                🎯 Market Maker
+                                                {market.market_maker_username === userData?.username ? 'Market Maker' : 'Market Administrator'}
                                             </div>
                                             <p>Your Spread: ${market.final_spread_low} - ${market.final_spread_high}</p>
                                             <button 
-                                                onClick={() => navigate('/trading')}
+                                                onClick={() => navigate('/markets')}
                                                 className="btn btn-info btn-small"
                                             >
                                                 View Trade Activity
@@ -227,7 +226,7 @@ const Dashboard = () => {
                                         <div className="spread-bidding-section">
                                             <p className="bid-prompt">Compete to become market maker!</p>
                                 <button 
-                                                onClick={() => navigate('/trading')}
+                                                onClick={() => navigate('/markets')}
                                                 className="btn btn-primary btn-small"
                                 >
                                                 Place Spread Bid
@@ -255,9 +254,9 @@ const Dashboard = () => {
                                     </div>
                                     
                                     <div className="market-info">
-                                        {market.outcome !== null && (
+                                        {market.settlement_price !== null && (
                                             <div className="outcome-info">
-                                                <span>Outcome: {market.outcome}</span>
+                                                <span>Outcome: {market.settlement_price}</span>
                                             </div>
                                         )}
                                         <div className="trade-stats">

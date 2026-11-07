@@ -165,8 +165,7 @@ USE_I18N = True
 USE_TZ = True  # Enable timezone support
 
 # Add timezone information for debugging
-import pytz
-from datetime import datetime
+from datetime import datetime, timezone as datetime_timezone
 
 # Log timezone information for debugging
 import logging
@@ -174,7 +173,7 @@ logger = logging.getLogger(__name__)
 
 def log_timezone_info():
     """Log current timezone information for debugging"""
-    utc_now = datetime.now(pytz.UTC)
+    utc_now = datetime.now(datetime_timezone.utc)
     logger.info(f"Server UTC time: {utc_now}")
     logger.info(f"Django TIME_ZONE setting: {TIME_ZONE}")
     logger.info(f"Django USE_TZ setting: {USE_TZ}")

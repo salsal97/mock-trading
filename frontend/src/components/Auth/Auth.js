@@ -96,12 +96,7 @@ const Auth = () => {
                 localStorage.setItem('token', response.token.access);
                 setSuccess('Login successful! Redirecting...');
                 
-                // Check if user is admin and redirect accordingly
-                if (response.is_admin) {
-                    setTimeout(() => navigate('/admin'), 1000);
-                } else {
-                    setTimeout(() => navigate('/dashboard'), 1000);
-                }
+                setTimeout(() => navigate('/dashboard'), 1000);
             } else {
                 setSuccess('Registration successful! Please login.');
                 setIsLogin(true);

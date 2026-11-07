@@ -26,7 +26,8 @@ rm -rf backend/static/*
 
 # Copy React build files to Django static directory
 echo "Copying React build files..."
-cp -r frontend/build/* backend/static/
+cp -r frontend/build/static/. backend/static/
+cp frontend/build/favicon.ico frontend/build/logo192.png frontend/build/logo512.png frontend/build/manifest.json frontend/build/robots.txt backend/static/
 
 # Create index.html in templates directory for Django to serve
 mkdir -p backend/templates

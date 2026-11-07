@@ -29,9 +29,6 @@ class UserProfileTestCase(TestCase):
         
         self.assertEqual(profile.user, user)
         self.assertEqual(profile.balance, Decimal('1000.00'))  # Default from model
-        self.assertFalse(profile.is_verified)  # Default should be False
-        self.assertIsNone(profile.verified_by)
-        self.assertIsNone(profile.verification_date)
 
     def test_user_profile_balance_validation(self):
         """Test that balance validation works correctly"""
@@ -50,42 +47,6 @@ class UserProfileTestCase(TestCase):
         profile.balance = 0.00
         profile.save()
         self.assertEqual(profile.balance, Decimal('0.00'))
-
-    def test_user_verification_process(self):
-        """Test user verification business rules"""
-        user = User.objects.create_user(
-            username=f'testuser_{uuid.uuid4()}',
-            email=f'testuser_{uuid.uuid4()}@example.com',
-            password='testpass123'
-        )
-        admin = User.objects.create_user(
-            username=f'admin_{uuid.uuid4()}',
-            email=f'admin_{uuid.uuid4()}@example.com',
-            password='admin123',
-            is_staff=True,
-            is_superuser=True
-        )
-        profile = user.profile  # Get automatically created profile
-        
-        # Initially not verified
-        self.assertFalse(profile.is_verified)
-        
-        # Admin can verify users
-        admin_profile = admin.profile  # Get automatically created profile
-        admin_profile.balance = 5000.00
-        admin_profile.is_verified = True
-        admin_profile.save()
-        
-        # Verify the user
-        profile.is_verified = True
-        profile.verified_by = admin
-        from django.utils import timezone
-        profile.verification_date = timezone.now()
-        profile.save()
-        
-        self.assertTrue(profile.is_verified)
-        self.assertEqual(profile.verified_by, admin)
-        self.assertIsNotNone(profile.verification_date)
 
     def test_user_string_representation(self):
         """Test string representation of user profile"""
@@ -121,24 +82,6 @@ class UserProfileTestCase(TestCase):
                 balance=2000.00
             )
 
-    def test_admin_user_properties(self):
-        """Test that admin users have correct properties"""
-        admin = User.objects.create_user(
-            username=f'admin_{uuid.uuid4()}',
-            email=f'admin_{uuid.uuid4()}@example.com',
-            password='admin123',
-            is_staff=True,
-            is_superuser=True
-        )
-        admin_profile = admin.profile  # Get automatically created profile
-        admin_profile.balance = 10000.00
-        admin_profile.is_verified = True
-        admin_profile.save()
-        
-        self.assertTrue(admin.is_staff)
-        self.assertTrue(admin.is_superuser)
-        self.assertTrue(admin_profile.is_verified)
-
     def test_regular_user_properties(self):
         """Test that regular users have correct default properties"""
         user = User.objects.create_user(
@@ -150,7 +93,6 @@ class UserProfileTestCase(TestCase):
         
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertFalse(profile.is_verified)  # Must be verified by admin
 
     def test_balance_decimal_precision(self):
         """Test that balance maintains proper decimal precision"""

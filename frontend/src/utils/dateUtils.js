@@ -29,16 +29,16 @@ export const getCurrentDateTimeLocal = () => {
  */
 export const formatForDateTimeInput = (dateString) => {
     if (!dateString) return '';
-    
+
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return '';
-    
+
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
-    
+
     return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
@@ -49,13 +49,13 @@ export const formatForDateTimeInput = (dateString) => {
  */
 export const convertLocalDateTimeToISO = (dateTimeLocalValue) => {
     if (!dateTimeLocalValue) return '';
-    
+
     // Create a Date object from the local datetime value
     // The browser treats datetime-local values as local time
     const date = new Date(dateTimeLocalValue);
-    
+
     if (isNaN(date.getTime())) return '';
-    
+
     // Return as ISO string (this will be in UTC)
     return date.toISOString();
 };
@@ -75,9 +75,22 @@ export const convertMarketDatesToISO = (market) => {
 };
 
 export const formatCurrency = (amount) => {
+    // Handle null, undefined, or invalid values
+    if (amount == null || amount === '' || isNaN(amount)) {
+        return 'N/A';
+    }
+
+    // Convert to number if it's a string
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+
+    // Check if conversion resulted in NaN
+    if (isNaN(numAmount)) {
+        return 'N/A';
+    }
+
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
         minimumFractionDigits: 2
-    }).format(amount);
-}; 
+    }).format(numAmount);
+};

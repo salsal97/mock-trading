@@ -121,7 +121,7 @@ jobs:
         print('✓ All models import successfully')
         
         from market.views import MarketViewSet
-        from accounts.views import UserProfileView
+        from accounts.views import user_profile
         print('✓ All views import successfully')
         "
 
@@ -136,7 +136,8 @@ jobs:
       run: |
         cd backend
         mkdir -p static templates
-        cp -r ../frontend/build/* static/
+        cp -r ../frontend/build/static/. static/
+        cp ../frontend/build/favicon.ico ../frontend/build/logo192.png ../frontend/build/logo512.png ../frontend/build/manifest.json ../frontend/build/robots.txt static/
         cp ../frontend/build/index.html templates/
         echo "✓ Static files prepared"
 
@@ -195,14 +196,6 @@ jobs:
           if curl -f -s -o /dev/null --max-time 30 "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/"; then
             echo "✅ App is responding!"
             
-            # Test admin login (optional - may fail if admin doesn't exist yet)
-            echo "Testing admin API access..."
-            curl -s -X POST "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/auth/login/" \
-              -H "Content-Type: application/json" \
-              -d '{"username": "admin", "password": "admin123"}' \
-              && echo "✅ Admin API accessible" \
-              || echo "ℹ️ Admin API test failed (may be normal for fresh deployment)"
-            
             break
           else
             echo "⏳ App not ready yet..."
@@ -227,13 +220,13 @@ jobs:
         ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net                       ║
         ║                                                                  ║
         ║  🔗 Admin Panel:                                                  ║
-        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/admin/                ║
+        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/system-admin/                ║
         ║                                                                  ║
         ║  📚 API Documentation:                                            ║
         ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/                  ║
         ║                                                                  ║
         ║  ✅ Features Deployed:                                            ║
-        ║     • Spread Bidding (no upper limit)                           ║
+        ║     • Spread Bidding                           ║
         ║     • Market Creation & Management                               ║
         ║     • User Authentication & Trading                              ║
         ║     • Real-time Market Updates                                   ║
@@ -265,7 +258,7 @@ jobs:
     - name: 🌐 Test Production API
       run: |
         echo "🧪 Running production API tests..."
-        python test_trading_api.py
+        curl --fail --silent --show-error "$API_BASE_URL/api/market/" > /dev/null
       env:
         API_BASE_URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
 

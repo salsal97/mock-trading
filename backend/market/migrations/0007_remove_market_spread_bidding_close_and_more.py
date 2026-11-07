@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='market',
             name='spread_bidding_close_trading_open',
-            field=models.DateTimeField(default=datetime.datetime(2025, 6, 20, 0, 0), help_text='When spread bidding closes and trading opens'),
+            field=models.DateTimeField(default=datetime.datetime(2025, 6, 20, 0, 0, tzinfo=datetime.timezone.utc), help_text='When spread bidding closes and trading opens'),
             preserve_default=False,
         ),
     ]

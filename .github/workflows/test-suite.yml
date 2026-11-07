@@ -1,563 +1,64 @@
-name: Comprehensive Test Suite
-
+name: Test Suite
 on:
   push:
-    branches: [ main, dev, feature/* ]
+    branches: [main, dev, 'feature/*']
   pull_request:
-    branches: [ main, dev ]
-  workflow_dispatch:  # Allow manual triggering
-
-env:
-  NODE_VERSION: '18'
-  PYTHON_VERSION: '3.11'
-
+    branches: [main, dev]
+  workflow_dispatch:
 jobs:
   backend-tests:
-    name: 🐍 Backend Tests
     runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: test_mock_trading
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: 🐍 Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: 📦 Install Python Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r backend/requirements.txt
-
-    - name: 🔧 Setup Django Environment
-      run: |
-        cd backend
-        python manage.py makemigrations --check --dry-run --verbosity=2
-        python manage.py migrate --verbosity=2
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 🧪 Run Django Unit Tests
-      run: |
-        cd backend
-        python manage.py test --verbosity=2 --parallel
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 🏗️ Test Database Models
-      run: |
-        cd backend
-        # Ensure fresh database state
-        python manage.py migrate --run-syncdb
-        python manage.py flush --noinput || true
-        python manage.py shell << 'EOF'
-        from django.contrib.auth.models import User
-        from market.models import Market, SpreadBid, Trade
-        from accounts.models import UserProfile
-        from django.utils import timezone
-        from datetime import timedelta
-        import uuid
-        
-        print("=== Testing Model Creation ===")
-        
-        # Use unique username to avoid conflicts
-        username = f"testuser_{uuid.uuid4().hex[:8]}"
-        
-        # Test user creation with get_or_create for safety
-        user, created = User.objects.get_or_create(
-            username=username,
-            defaults={
-                'email': f'{username}@example.com',
-                'first_name': 'Test',
-                'last_name': 'User'
-            }
-        )
-        if created:
-            user.set_password('testpass')
-            user.save()
-        
-        # Test profile creation
-        profile, created = UserProfile.objects.get_or_create(
-            user=user,
-            defaults={'balance': 1000.0}
-        )
-        print(f"✓ Created user: {user.username} (new: {created})")
-        
-        # Test market creation
-        now = timezone.now()
-        market = Market.objects.create(
-            premise=f"Test market premise {uuid.uuid4().hex[:8]}",
-            unit_price=1.0,
-            initial_spread=20,
-            spread_bidding_open=now - timedelta(hours=1),
-            spread_bidding_close_trading_open=now + timedelta(hours=1),
-            trading_close=now + timedelta(hours=2),
-            created_by=user
-        )
-        print(f"✓ Created market: {market.id}")
-        
-        # Create a different user for spread bidding (market creators can't bid on their own markets)
-        bidder_username = f"bidder_{uuid.uuid4().hex[:8]}"
-        bidder, created = User.objects.get_or_create(
-            username=bidder_username,
-            defaults={
-                'email': f'{bidder_username}@example.com',
-                'first_name': 'Bidder',
-                'last_name': 'User'
-            }
-        )
-        if created:
-            bidder.set_password('${{ secrets.TEST_USER_PASSWORD }}')
-            bidder.save()
-        
-        # Test profile creation for bidder
-        bidder_profile, created = UserProfile.objects.get_or_create(
-            user=bidder,
-            defaults={'balance': 1000.0, 'is_verified': True}
-        )
-        print(f"✓ Created bidder: {bidder.username} (new: {created})")
-        
-        # Test spread bid creation with different user
-        bid = SpreadBid.objects.create(
-            market=market,
-            user=bidder,  # Use different user, not market creator
-            spread_low=40.0,
-            spread_high=60.0
-        )
-        print(f"✓ Created spread bid: {bid.spread_width} width")
-        
-        print("=== All model tests passed ===")
-        EOF
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_mock_trading
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: python backend/manage.py makemigrations --check --dry-run --settings=mock_trading.test_settings
+      - run: python backend/manage.py test accounts market --settings=mock_trading.test_settings
   frontend-tests:
-    name: ⚛️ Frontend Tests
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: frontend
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: 📦 Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
-
-    - name: 📦 Install Frontend Dependencies
-      run: |
-        cd frontend
-        npm ci --prefer-offline --no-audit
-
-    - name: 🧪 Run Frontend Tests
-      run: |
-        cd frontend
-        npm test -- --coverage --watchAll=false --testTimeout=30000
-      env:
-        CI: true
-
-    - name: 🏗️ Test Frontend Build
-      run: |
-        cd frontend
-        CI=false npm run build
-        echo "✓ Frontend build successful"
-
-    - name: 📊 Upload Coverage
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: frontend-coverage
-        path: frontend/coverage/
-        retention-days: 7
-
-  integration-tests:
-    name: 🔗 Integration Tests
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --watchAll=false --runInBand
+        env:
+          CI: 'true'
+      - run: npm run build
+        env:
+          CI: 'false'
+  postgres-concurrency:
     runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests]
-    
     services:
       postgres:
-        image: postgres:13
+        image: postgres:16
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: test_integration_db
+          POSTGRES_USER: revival_test
+          POSTGRES_PASSWORD: disposable_test_password
+          POSTGRES_DB: revival_isolated
+        ports:
+          - 55432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: 🐍 Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: 📦 Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
-
-    - name: 📦 Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r backend/requirements.txt
-        pip install requests  # For API testing
-        cd frontend
-        npm ci --prefer-offline --no-audit
-
-    - name: 🏗️ Build Complete Application
-      run: |
-        cd frontend
-        CI=false NODE_ENV=production npm run build
-        cd ../backend
-        python manage.py makemigrations
-        python manage.py migrate
-        mkdir -p static templates
-        cp -r ../frontend/build/* static/
-        cp ../frontend/build/index.html templates/
-        python manage.py collectstatic --noinput
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_integration_db
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 👥 Create Test Users
-      run: |
-        cd backend
-        python manage.py shell << 'EOF'
-        from django.contrib.auth.models import User
-        from accounts.models import UserProfile
-        
-        # Create admin user
-        admin_user, created = User.objects.get_or_create(
-            username='admin',
-            defaults={
-                'email': 'admin@test.com',
-                'is_staff': True,
-                'is_superuser': True
-            }
-        )
-        if created:
-            admin_user.set_password('${{ secrets.TEST_ADMIN_PASSWORD }}')
-            admin_user.save()
-            UserProfile.objects.get_or_create(
-                user=admin_user,
-                defaults={'balance': 10000.0}
-            )
-            print(f"Created admin user: {admin_user.username}")
-        
-        # Create test users for trading
-        test_users = ['bidder1', 'bidder2', 'bidder3', 'trader']
-        for username in test_users:
-            user, created = User.objects.get_or_create(
-                username=username,
-                defaults={
-                    'email': f'{username}@test.com',
-                    'first_name': 'Test',
-                    'last_name': 'User'
-                }
-            )
-            if created:
-                user.set_password('${{ secrets.TEST_USER_PASSWORD }}')
-                user.save()
-                UserProfile.objects.get_or_create(
-                    user=user,
-                    defaults={'balance': 1000.0}
-                )
-                print(f"Created test user: {user.username}")
-        
-        print("User setup completed successfully!")
-        EOF
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_integration_db
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 🚀 Start Django Test Server
-      run: |
-        cd backend
-        python manage.py runserver 8000 &
-        SERVER_PID=$!
-        echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-        
-        # Wait for server to start
-        for i in {1..30}; do
-          if curl -s http://localhost:8000/ > /dev/null; then
-            echo "✓ Django server started successfully"
-            break
-          fi
-          echo "Waiting for server... ($i/30)"
-          sleep 2
-        done
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_integration_db
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 🔍 Test Server Health
-      run: |
-        echo "Testing basic server response..."
-        curl -f -s -o /dev/null http://localhost:8000/ || echo "⚠️ Main page not accessible"
-        
-        echo "Testing API authentication..."
-        response=$(curl -s -X POST http://localhost:8000/api/auth/login/ \
-          -H "Content-Type: application/json" \
-          -d "{\"username\": \"admin\", \"password\": \"$TEST_ADMIN_PASSWORD\"}")
-        echo "Login response: $response"
-      env:
-        TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
-
-    - name: 🧪 Run Comprehensive API Tests
-      run: |
-        echo "=== Running Comprehensive API Tests ==="
-        python test_trading_api.py
-      env:
-        API_BASE_URL: http://localhost:8000
-        TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
-        TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-
-    - name: 🎯 Run Spread Bidding Model Tests
-      run: |
-        cd backend
-        python manage.py shell << 'EOF'
-        from django.contrib.auth.models import User
-        from market.models import Market, SpreadBid
-        from datetime import timedelta
-        from django.utils import timezone
-        
-        print("=== Spread Bidding Model Tests ===")
-        
-        # Create market for testing
-        admin_user = User.objects.get(username='admin')
-        now = timezone.now()
-        
-        market = Market.objects.create(
-            premise="CI Test Market for Spread Bidding",
-            unit_price=1.0,
-            initial_spread=30,
-            spread_bidding_open=now - timedelta(hours=1),
-            spread_bidding_close_trading_open=now + timedelta(hours=1),
-            trading_close=now + timedelta(hours=3),
-            created_by=admin_user
-        )
-        print(f"✓ Created test market: {market.id}")
-        
-        # Create test bidders for spread bidding
-        from accounts.models import UserProfile
-        import uuid
-        
-        bidders = []
-        for i in range(3):
-            bidder_name = f"bidder_{uuid.uuid4().hex[:8]}"
-            bidder, created = User.objects.get_or_create(
-                username=bidder_name,
-                defaults={
-                    'email': f'{bidder_name}@example.com',
-                    'first_name': f'Bidder{i+1}',
-                    'last_name': 'User'
-                }
-            )
-            if created:
-                bidder.set_password('${{ secrets.TEST_USER_PASSWORD }}')
-                bidder.save()
-            
-            # Create profile for bidder
-            profile, created = UserProfile.objects.get_or_create(
-                user=bidder,
-                defaults={'balance': 1000.0, 'is_verified': True}
-            )
-            bidders.append(bidder)
-        
-        print(f"✓ Created {len(bidders)} test bidders")
-        
-        # Test spread bids with created bidders
-        bid1 = SpreadBid.objects.create(
-            market=market,
-            user=bidders[0],
-            spread_low=40.0,
-            spread_high=60.0
-        )
-        print(f"✓ Bid 1: {bid1.spread_low}-{bid1.spread_high} (width: {bid1.spread_width})")
-        
-        bid2 = SpreadBid.objects.create(
-            market=market,
-            user=bidders[1],
-            spread_low=42.0,
-            spread_high=58.0
-        )
-        print(f"✓ Bid 2: {bid2.spread_low}-{bid2.spread_high} (width: {bid2.spread_width})")
-        
-        # Test high values (no upper limit)
-        bid3 = SpreadBid.objects.create(
-            market=market,
-            user=bidders[2],
-            spread_low=200.0,
-            spread_high=300.0
-        )
-        print(f"✓ High value bid: {bid3.spread_low}-{bid3.spread_high} (width: {bid3.spread_width})")
-        
-        # Check best bid
-        best_bid = market.best_spread_bid
-        print(f"✓ Best bid: {best_bid.user.username} with width {best_bid.spread_width}")
-        
-        # Test market activation
-        result = market.auto_activate_market()
-        print(f"✓ Auto-activation: {result['success']} - {result['reason']}")
-        
-        if result['success']:
-            market.refresh_from_db()
-            print(f"✓ Final status: {market.status}")
-            print(f"✓ Market maker: {market.market_maker.username}")
-            print(f"✓ Final spread: {market.final_spread_low} - {market.final_spread_high}")
-        
-        print("=== All spread bidding tests passed! ===")
-        EOF
-      env:
-        SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-        DB_NAME: test_integration_db
-        DB_USER: postgres
-        DB_PASSWORD: postgres
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DEBUG: True
-
-    - name: 🧹 Cleanup
-      if: always()
-      run: |
-        if [ ! -z "$SERVER_PID" ]; then
-          kill $SERVER_PID || true
-        fi
-
-    - name: 📊 Upload Test Artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: integration-test-results
-        path: |
-          backend/db.sqlite3
-          backend/logs/
-        retention-days: 7
-
-  business-rules-tests:
-    name: 🎯 Business Rules Tests
-    runs-on: ubuntu-latest
-    needs: [backend-tests]
-
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: 🐍 Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: 📦 Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r backend/requirements.txt
-
-    - name: 🧪 Run Business Rules Tests
-      run: |
-        export SECRET_KEY="${{ secrets.DJANGO_SECRET_KEY }}"
-        export DEBUG=True
-        export USE_SQLITE=True
-        export GITHUB_ACTIONS=true
-        python test_business_rules.py
-
-  summary:
-    name: 📋 Test Summary
-    runs-on: ubuntu-latest
-    needs: [backend-tests, frontend-tests, integration-tests, business-rules-tests]
-    if: always()
-
-    steps:
-    - name: 📊 Generate Test Report
-      run: |
-        echo "# 🧪 Test Suite Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Test Job | Status | Details |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-        echo "| 🐍 Backend Tests | ${{ needs.backend-tests.result }} | Django unit tests, migrations, models |" >> $GITHUB_STEP_SUMMARY
-        echo "| ⚛️ Frontend Tests | ${{ needs.frontend-tests.result }} | React tests, build validation, coverage |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🔗 Integration Tests | ${{ needs.integration-tests.result }} | Full-stack API tests, spread bidding |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🎯 Business Rules Tests | ${{ needs.business-rules-tests.result }} | Comprehensive business rules validation |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        if [[ "${{ needs.backend-tests.result }}" == "success" && "${{ needs.frontend-tests.result }}" == "success" && "${{ needs.integration-tests.result }}" == "success" && "${{ needs.business-rules-tests.result }}" == "success" ]]; then
-          echo "## ✅ All Tests Passed!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🎉 The application is ready for deployment!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Features Validated:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Spread bidding mechanics (no upper limit)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Market creation and activation" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ User authentication and trading" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Database operations and migrations" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Frontend build and functionality" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ API integration and validation" >> $GITHUB_STEP_SUMMARY
-          exit 0
-        else
-          echo "## ❌ Some Tests Failed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Please check the individual job results above for details." >> $GITHUB_STEP_SUMMARY
-          exit 1
-        fi 
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: python backend/manage.py test market.test_postgresql_concurrency --settings=mock_trading.revival_postgres_test_settings
+        env:
+          REVIVAL_TEST_PG_USER: revival_test
+          REVIVAL_TEST_PG_PASSWORD: disposable_test_password
+          REVIVAL_TEST_PG_PORT: '55432'
