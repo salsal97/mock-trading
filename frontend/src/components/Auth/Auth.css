@@ -369,7 +369,11 @@
     margin: 0 0 1rem 0;
 }
 
-.auth-footer a {
+.auth-footer button {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
     color: var(--oxford-blue);
     text-decoration: none;
     font-weight: 600;
@@ -377,7 +381,7 @@
     transition: color 0.3s ease;
 }
 
-.auth-footer a:hover {
+.auth-footer button:hover {
     color: var(--oxford-gold);
     text-decoration: underline;
 }

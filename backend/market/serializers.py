@@ -67,10 +67,18 @@ class MarketSerializer(serializers.ModelSerializer):
         return result
 
     def _ranked_quotes(self, obj):
+        # Both public ranking fields must use the same latest quote for each user.
+        if not hasattr(self, '_quote_rankings'):
+            self._quote_rankings = {}
+        if obj.pk in self._quote_rankings:
+            return self._quote_rankings[obj.pk]
         latest = {}
         for bid in obj.spread_bids.select_related('user').order_by('bid_time', 'id'):
+            # Later revisions replace earlier ones, even when the spread is wider.
             latest[bid.user_id] = bid
-        return sorted(latest.values(), key=lambda b: (b.spread_width, b.bid_time, b.id))
+        ranked = sorted(latest.values(), key=lambda b: (b.spread_width, b.bid_time, b.id))
+        self._quote_rankings[obj.pk] = ranked
+        return ranked
 
     def get_top_quotes(self, obj):
         request = self.context.get('request')

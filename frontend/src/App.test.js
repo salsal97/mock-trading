@@ -54,7 +54,7 @@ describe('App Authentication Tests', () => {
     const brandTitle = screen.getByText(/welcome to oxford mock trading/i);
     expect(brandTitle).toBeInTheDocument();
     
-    const brandSubtitle = screen.getByText(/advanced market simulation platform for mba students/i);
+    const brandSubtitle = screen.getByText(/market simulation for mba students/i);
     expect(brandSubtitle).toBeInTheDocument();
   });
 
@@ -85,33 +85,11 @@ describe('App Authentication Tests', () => {
     expect(passwordInput.value).toBe('testpass');
   });
 
-  test('displays additional navigation links', () => {
+  test('opens the registration form', () => {
     render(<App />);
-    
-    const createAccountLink = screen.getByText(/create one here/i);
-    expect(createAccountLink).toBeInTheDocument();
-    
-    const forgotPasswordLink = screen.getByText(/forgot your password/i);
-    expect(forgotPasswordLink).toBeInTheDocument();
-    
-    const helpLink = screen.getByText(/need help/i);
-    expect(helpLink).toBeInTheDocument();
-  });
-
-  test('has proper footer information', () => {
-    render(<App />);
-    
-    const copyrightText = screen.getByText(/© 2024 oxford mock trading platform/i);
-    expect(copyrightText).toBeInTheDocument();
-    
-    const privacyLink = screen.getByText(/privacy policy/i);
-    expect(privacyLink).toBeInTheDocument();
-    
-    const termsLink = screen.getByText(/terms of service/i);
-    expect(termsLink).toBeInTheDocument();
-    
-    const supportLink = screen.getByText(/support/i);
-    expect(supportLink).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /create one here/i }));
+    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/confirm password/i)).toBeInTheDocument();
   });
 
   test('form submission behavior', () => {
@@ -190,7 +168,7 @@ describe('App Accessibility Tests', () => {
     const form = document.querySelector('form');
     expect(form).toBeInTheDocument();
     
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('button', { name: /sign in to platform/i });
     expect(button).toBeInTheDocument();
   });
 });

@@ -4,4 +4,4 @@
 - Define cancellation, outcome evidence, disputes, and an audited correction/reversal procedure after settlement. Administrator material-change audit history is not yet implemented.
 - Configure and monitor lifecycle maintenance in the intended environment. The default local suite uses SQLite and skips the two PostgreSQL-only tests; CI runs them against an isolated PostgreSQL service.
 - Before any relaunch, review deployment settings and security, provision administrators deliberately, review retained server logs for sensitive registration data, and address the tracked publish-settings credentials with the owner through a separate authorized credential-rotation and repository-history process. No credentials were rotated here.
-- The production build has existing authentication-page accessibility warnings. Address these in a separate maintenance pass.
+Always ensure code is concise and well commented

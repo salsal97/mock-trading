@@ -1,4 +1,4 @@
-name: 🚀 Deploy to Azure
+name: Deploy to Azure
 
 on:
   push:
@@ -20,17 +20,17 @@ env:
 
 jobs:
   check-tests:
-    name: 🔍 Check Test Status
+    name: Check Test Status
     runs-on: ubuntu-latest
     if: github.event.inputs.force_deploy != 'true'
     outputs:
       should_deploy: ${{ steps.check.outputs.should_deploy }}
     
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout Code
       uses: actions/checkout@v4
     
-    - name: 🔍 Check Latest Test Run
+    - name: Check Latest Test Run
       id: check
       uses: actions/github-script@v6
       with:
@@ -58,10 +58,10 @@ jobs:
             console.log(`Latest test run: ${testRun.status} - ${testRun.conclusion}`);
             
             if (testRun.conclusion === 'success') {
-              console.log('✅ Tests passed, proceeding with deployment');
+              console.log('Tests passed, proceeding with deployment');
               core.setOutput('should_deploy', 'true');
             } else {
-              console.log('❌ Tests failed or not completed');
+              console.log('Tests failed or not completed');
               core.setOutput('should_deploy', 'false');
             }
           } catch (error) {
@@ -70,7 +70,7 @@ jobs:
           }
 
   build-and-deploy:
-    name: 🏗️ Build & Deploy
+    name: Build & Deploy
     runs-on: ubuntu-latest
     needs: [check-tests]
     if: |
@@ -80,28 +80,28 @@ jobs:
        needs.check-tests.result == 'skipped')
 
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
 
-    - name: 📦 Set up Node
+    - name: Set up Node
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: 📦 Install Python Dependencies
+    - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt
 
-    - name: 🔧 Pre-deployment Health Check
+    - name: Pre-deployment Health Check
       run: |
         cd backend
         python -c "
@@ -113,35 +113,35 @@ jobs:
         django.setup()
         
         from django.core.management import execute_from_command_line
-        print('✓ Django configuration is valid')
+        print('Django configuration is valid')
         
         # Test critical imports
         from market.models import Market, SpreadBid, Trade
         from accounts.models import UserProfile
-        print('✓ All models import successfully')
+        print('All models import successfully')
         
         from market.views import MarketViewSet
         from accounts.views import user_profile
-        print('✓ All views import successfully')
+        print('All views import successfully')
         "
 
-    - name: 🏗️ Build Production Frontend
+    - name: Build Production Frontend
       run: |
         cd frontend
         npm ci --production --prefer-offline --no-audit
         CI=false NODE_ENV=production npm run build
-        echo "✓ Frontend build completed"
+        echo "Frontend build completed"
 
-    - name: 📁 Prepare Django Static Files
+    - name: Prepare Django Static Files
       run: |
         cd backend
         mkdir -p static templates
         cp -r ../frontend/build/static/. static/
         cp ../frontend/build/favicon.ico ../frontend/build/logo192.png ../frontend/build/logo512.png ../frontend/build/manifest.json ../frontend/build/robots.txt static/
         cp ../frontend/build/index.html templates/
-        echo "✓ Static files prepared"
+        echo "Static files prepared"
 
-    - name: 🧹 Clean Build Artifacts
+    - name: Clean Build Artifacts
       run: |
         # Remove node_modules to reduce deployment size
         rm -rf frontend/node_modules
@@ -155,9 +155,9 @@ jobs:
         rm -f backend/db.sqlite3
         rm -rf backend/.pytest_cache
         
-        echo "✓ Build artifacts cleaned"
+        echo "Build artifacts cleaned"
 
-    - name: 📦 Create Deployment Package
+    - name: Create Deployment Package
       run: |
         echo "=== Deployment Package Contents ===" 
         echo "Backend files:"
@@ -170,21 +170,21 @@ jobs:
         cat backend/requirements.txt | head -5
         echo "================================="
 
-    - name: 🚀 Deploy to Azure Web App
+    - name: Deploy to Azure Web App
       uses: azure/webapps-deploy@v2
       with:
         app-name: ${{ env.AZURE_WEBAPP_NAME }}
         publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
         package: backend
 
-    - name: ⏱️ Wait for Deployment
+    - name: ⏱Wait for Deployment
       run: |
-        echo "⏱️ Waiting for deployment to stabilize..."
+        echo "⏱Waiting for deployment to stabilize..."
         sleep 30
 
-    - name: 🔍 Post-Deployment Health Check
+    - name: Post-Deployment Health Check
       run: |
-        echo "🔍 Testing deployment health..."
+        echo "Testing deployment health..."
         
         max_attempts=10
         attempt=1
@@ -194,13 +194,13 @@ jobs:
           
           # Test basic connectivity
           if curl -f -s -o /dev/null --max-time 30 "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/"; then
-            echo "✅ App is responding!"
+            echo "App is responding!"
             
             break
           else
             echo "⏳ App not ready yet..."
             if [ $attempt -eq $max_attempts ]; then
-              echo "❌ Deployment health check failed"
+              echo "Deployment health check failed"
               exit 1
             fi
             sleep 10
@@ -209,63 +209,40 @@ jobs:
           attempt=$((attempt + 1))
         done
 
-    - name: 🎉 Deployment Success
-      run: |
-        echo "
-        ╔══════════════════════════════════════════════════════════════════╗
-        ║                    🎉 DEPLOYMENT SUCCESSFUL! 🎉                  ║
-        ╠══════════════════════════════════════════════════════════════════╣
-        ║                                                                  ║
-        ║  🌐 Application URL:                                              ║
-        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net                       ║
-        ║                                                                  ║
-        ║  🔗 Admin Panel:                                                  ║
-        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/system-admin/                ║
-        ║                                                                  ║
-        ║  📚 API Documentation:                                            ║
-        ║     https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/                  ║
-        ║                                                                  ║
-        ║  ✅ Features Deployed:                                            ║
-        ║     • Spread Bidding                           ║
-        ║     • Market Creation & Management                               ║
-        ║     • User Authentication & Trading                              ║
-        ║     • Real-time Market Updates                                   ║
-        ║     • Admin Dashboard                                            ║
-        ║                                                                  ║
-        ╚══════════════════════════════════════════════════════════════════╝
-        " >> $GITHUB_STEP_SUMMARY
+    - name: Deployment summary
+      run: echo "App URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
 
   post-deployment-tests:
-    name: 🧪 Post-Deployment Tests
+    name: Post-Deployment Tests
     runs-on: ubuntu-latest
     needs: build-and-deploy
     if: success()
 
     steps:
-    - name: 📥 Checkout Code
+    - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: 🐍 Set up Python
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: 📦 Install Test Dependencies
+    - name: Install Test Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests
 
-    - name: 🌐 Test Production API
+    - name: Test Production API
       run: |
-        echo "🧪 Running production API tests..."
+        echo "Running production API tests..."
         curl --fail --silent --show-error "$API_BASE_URL/api/market/" > /dev/null
       env:
         API_BASE_URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
 
-    - name: 📊 Generate Deployment Report
+    - name: Generate Deployment Report
       if: always()
       run: |
-        echo "# 🚀 Deployment Report" >> $GITHUB_STEP_SUMMARY
+        echo "# Deployment Report" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Deployment Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

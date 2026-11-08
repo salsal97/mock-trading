@@ -37,6 +37,12 @@ export const handleApiError = (error) => {
         return error.response.data.message;
     }
 
+    // Django REST Framework returns validation errors directly by field name.
+    if (error.response?.status === 400 && error.response.data && typeof error.response.data === 'object') {
+        const messages = Object.values(error.response.data).flat().filter(value => typeof value === 'string');
+        if (messages.length) return messages.join('. ');
+    }
+
     if (error.response?.status === 401) {
         return 'Unauthorized. Please log in again.';
     }

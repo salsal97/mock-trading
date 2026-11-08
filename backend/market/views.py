@@ -8,7 +8,8 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from decimal import Decimal, InvalidOperation
-from .models import Market, SpreadBid, Trade
+from .models import Market, Trade
+from .settlement import calculate_settlement_preview, execute_settlement as settle_market
 from .serializers import (
     MarketSerializer, MarketCreateSerializer, MarketEditSerializer,
     SpreadBidSerializer, SpreadBidCreateSerializer,
@@ -19,11 +20,7 @@ from .utils import create_success_response, create_error_response
 from .lifecycle import maintain_markets
 
 class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
-    """
-    ViewSet for managing markets.
-    - GET operations: Available to all authenticated users
-    - POST/PUT/PATCH/DELETE operations: Admin users only
-    """
+    """Market browsing, bidding, and market-specific administration."""
     queryset = Market.objects.all()
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
@@ -35,17 +32,12 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
 
     def get_queryset(self):
         """Filter markets based on query parameters"""
-        # Auto-activate eligible markets (lazy evaluation)
         maintain_markets()
 
         queryset = Market.objects.all()
-
-        # Filter by status if provided
         status_filter = self.request.query_params.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
-
-        # Filter by active trading
         active_only = self.request.query_params.get('active_only')
         if active_only and active_only.lower() == 'true':
             queryset = queryset.filter(status='OPEN')
@@ -61,8 +53,6 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-
-        # Return full market data using MarketSerializer
         market = serializer.instance
         response_serializer = MarketSerializer(market)
         headers = self.get_success_headers(serializer.data)
@@ -83,18 +73,13 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
     def place_spread_bid(self, request, pk=None):
         """Place a spread bid on a market"""
         market = get_object_or_404(Market.objects.select_for_update(), pk=pk)
-
-        # Create serializer with market and user context
         serializer = SpreadBidCreateSerializer(
             data={**request.data, 'market': market.id},
             context={'request': request}
         )
 
         if serializer.is_valid():
-            # Save the bid with the authenticated user
             spread_bid = serializer.save(user=request.user)
-
-            # Return the created bid data
             response_serializer = SpreadBidSerializer(spread_bid)
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -131,7 +116,6 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
         allowed = {'premise', 'unit_value', 'spread_bidding_open', 'spread_bidding_close_trading_open', 'trading_close'}
         if market.status == 'SETTLED' or set(request.data) - allowed:
             return Response({'error': 'Use lifecycle actions for status and outcome'}, status=400)
-        # Use partial update for PATCH, full update for PUT
         partial = request.method == 'PATCH'
 
         serializer = MarketEditSerializer(
@@ -145,8 +129,6 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
             if 'unit_value' in request.data:
                 market.settlement_preview_calculated = False
                 market.save()
-
-            # Return full market data
             response_serializer = MarketSerializer(market)
             return Response({
                 'message': 'Market updated successfully',
@@ -160,7 +142,6 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def place_trade(self, request, pk=None):
-        from django.db import transaction
         with transaction.atomic():
             market = get_object_or_404(Market.objects.select_for_update(), pk=pk)
             allowed, reason = market.can_user_trade(request.user)
@@ -176,7 +157,7 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
                 return Response({'error': 'Positions do not have quantities'}, status=400)
             position = {'BUY': 'LONG', 'SELL': 'SHORT'}[position]
             price = market.market_maker_spread_high if position == 'LONG' else market.market_maker_spread_low
-            trade, created = Trade.objects.update_or_create(
+            trade, _ = Trade.objects.update_or_create(
                 market=market, user=request.user,
                 defaults={'position': position, 'price': float(price), 'quantity': 1})
             return Response({'message': 'Position saved', 'trade_id': trade.id, 'position': 'BUY' if position == 'LONG' else 'SELL', 'price': price})
@@ -185,8 +166,6 @@ class MarketViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retri
     def trades(self, request, pk=None):
         """Get all trades for a market"""
         market = self.get_object()
-
-        # Filter by position if specified
         position_filter = request.query_params.get('position')
         trades = market.trades.all()
 
@@ -303,7 +282,7 @@ def settlement_preview(request, market_id):
         if market.settlement_price is None:
             return create_error_response("Settlement price must be set before preview", status_code=status.HTTP_400_BAD_REQUEST)
 
-        settlement_data = market.calculate_settlement_preview()
+        settlement_data = calculate_settlement_preview(market)
 
         return create_success_response(
             "Settlement preview calculated successfully",
@@ -333,7 +312,7 @@ def execute_settlement(request, market_id):
         if confirmed is not True:
             return create_error_response("Admin confirmation required - set 'confirmed': true", status_code=status.HTTP_400_BAD_REQUEST)
 
-        result = market.execute_settlement(confirmed_by_admin=True, preview_version=request.data.get('preview_version'))
+        result = settle_market(market, confirmed_by_admin=True, preview_version=request.data.get('preview_version'))
 
         if result['success']:
             return create_success_response(

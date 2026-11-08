@@ -10,6 +10,7 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from .models import Market, Trade, SettlementEntry
+from .settlement import calculate_settlement_preview
 
 @skipUnless(connection.vendor == 'postgresql', 'Requires isolated PostgreSQL for row-lock tests')
 class PostgreSQLSettlementConcurrencyTest(TransactionTestCase):
@@ -27,7 +28,7 @@ class PostgreSQLSettlementConcurrencyTest(TransactionTestCase):
             trading_close=now+timedelta(hours=1))
         Trade.objects.create(user=self.trader, market=market, position='LONG', price=90, quantity=1)
         market.status = 'CLOSED'; market.save(); market.set_settlement_price(Decimal('93'))
-        return market, market.calculate_settlement_preview()['preview_version']
+        return market, calculate_settlement_preview(market)['preview_version']
 
     def submit_simultaneously(self, requests):
         barrier = Barrier(len(requests))

@@ -86,7 +86,7 @@ const SettledTradesView = ({ marketId }) => {
                                         {trade.profit_loss >= 0 ? '+' : ''}{formatCurrency(trade.profit_loss)}
                                         {trade.won !== null && (
                                             <span className={`win-indicator ${trade.won ? 'won' : 'lost'}`}>
-                                                {trade.won ? ' ✓' : ' ✗'}
+                                                {trade.won ? ' Win' : ' Loss'}
                                             </span>
                                         )}
                                     </span>
@@ -101,7 +101,7 @@ const SettledTradesView = ({ marketId }) => {
                                     <strong> Losers:</strong> {trades.filter(t => !t.won).length}
                                 </p>
                                 <p className="transparency-note">
-                                    📊 All trade details are publicly visible for settled markets to ensure transparency.
+                                    Trade details are visible after settlement.
                                 </p>
                             </div>
                         </div>

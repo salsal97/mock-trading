@@ -52,6 +52,8 @@ For the headless browser journey, start both isolated local servers above, run `
 
 ## Maintenance and builds
 
+The market workspace uses `MarketCreation`, `MarketBidding`, `MarketTrading`, and `MarketAdministration` for its sections. `useMarketData` loads and polls the selected market while discarding stale responses. On the backend, `market/lifecycle.py` advances markets and `market/settlement.py` calculates previews and performs confirmed settlement under database locks. Models retain the database fields and market rules, while views expose the API.
+
 `python backend/manage.py maintain_markets --settings=<settings>` advances due markets using locks; `--dry-run` reports without changes and `--market-id ID` narrows the run. Schedule it periodically in the target environment; no scheduler is installed by this repository. API reads also run this service. No-bid delay, activation and closure are idempotent.
 
 `build-frontend.sh` builds React and copies generated assets and its index template into Django for combined serving. Those generated files are ignored rather than checked in. The development server uses the separate frontend server above. Production API requests default to the same origin unless `REACT_APP_API_BASE_URL` is set at build time.
